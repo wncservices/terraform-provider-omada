@@ -205,6 +205,58 @@ func newMockController(t *testing.T) *httptest.Server {
 		}
 	})
 
+	// Stateful port-forward store, seeded with one rule so the WAN-port default
+	// can be inferred (mirrors a real controller with an existing rule).
+	pf := map[string]map[string]any{
+		"pf-seed": {"id": "pf-seed", "name": "seed", "status": true, "protocol": 1,
+			"externalPort": "80", "forwardIp": "10.10.20.9", "forwardPort": "80",
+			"interfaceWanPortId": []any{"wan-1"}, "virtualWanId": []any{}, "dMZ": false},
+	}
+	pfNext := 1
+	const pfBase = "/abc123/api/v2/sites/site-1/setting/transmission/portForwardings"
+	mux.HandleFunc(pfBase, func(w http.ResponseWriter, r *http.Request) {
+		if !requireToken(w, r) {
+			return
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		switch r.Method {
+		case http.MethodPost:
+			var in map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&in)
+			id := fmt.Sprintf("pf-%d", pfNext)
+			pfNext++
+			in["id"] = id
+			pf[id] = in
+			writeEnvelope(w, 0, "", nil)
+		default: // GET
+			data := make([]map[string]any, 0, len(pf))
+			for _, n := range pf {
+				data = append(data, n)
+			}
+			writeEnvelope(w, 0, "", map[string]any{"totalRows": len(data), "data": data})
+		}
+	})
+	mux.HandleFunc(pfBase+"/", func(w http.ResponseWriter, r *http.Request) {
+		if !requireToken(w, r) {
+			return
+		}
+		id := strings.TrimPrefix(r.URL.Path, pfBase+"/")
+		mu.Lock()
+		defer mu.Unlock()
+		switch r.Method {
+		case http.MethodDelete:
+			delete(pf, id)
+			writeEnvelope(w, 0, "", nil)
+		default: // PUT
+			var in map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&in)
+			in["id"] = id
+			pf[id] = in
+			writeEnvelope(w, 0, "", in)
+		}
+	})
+
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 	return srv
