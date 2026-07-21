@@ -33,3 +33,34 @@ func stringSlice(ctx context.Context, l types.List) ([]string, diag.Diagnostics)
 	d := l.ElementsAs(ctx, &out, false)
 	return out, d
 }
+
+// nilToEmpty returns an empty slice for nil, so JSON marshals [] not null.
+func nilToEmpty(s []string) []string {
+	if s == nil {
+		return []string{}
+	}
+	return s
+}
+
+// intListValue converts a Go int slice to a known (never null) types.List.
+func intListValue(ctx context.Context, s []int) (types.List, diag.Diagnostics) {
+	vals := make([]int64, len(s))
+	for i, v := range s {
+		vals[i] = int64(v)
+	}
+	return types.ListValueFrom(ctx, types.Int64Type, vals)
+}
+
+// intSlice reads a types.List of ints into a Go slice. Null/unknown -> nil.
+func intSlice(ctx context.Context, l types.List) ([]int, diag.Diagnostics) {
+	if l.IsNull() || l.IsUnknown() {
+		return nil, nil
+	}
+	var vals []int64
+	d := l.ElementsAs(ctx, &vals, false)
+	out := make([]int, len(vals))
+	for i, v := range vals {
+		out[i] = int(v)
+	}
+	return out, d
+}

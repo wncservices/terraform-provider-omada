@@ -315,6 +315,53 @@ func newMockController(t *testing.T) *httptest.Server {
 		}
 	})
 
+	// Stateful firewall-ACL store (POST create, GET ?type=N, PUT /{id}, DELETE).
+	acls := map[string]map[string]any{}
+	aclNext := 1
+	const aclBase = "/abc123/api/v2/sites/site-1/setting/firewall/acls"
+	mux.HandleFunc(aclBase, func(w http.ResponseWriter, r *http.Request) {
+		if !requireToken(w, r) {
+			return
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		switch r.Method {
+		case http.MethodPost:
+			var in map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&in)
+			id := fmt.Sprintf("acl-%d", aclNext)
+			aclNext++
+			in["id"] = id
+			acls[id] = in
+			writeEnvelope(w, 0, "", nil)
+		default: // GET (?type=N ignored by the mock — single type in tests)
+			data := make([]map[string]any, 0, len(acls))
+			for _, n := range acls {
+				data = append(data, n)
+			}
+			writeEnvelope(w, 0, "", map[string]any{"totalRows": len(data), "data": data})
+		}
+	})
+	mux.HandleFunc(aclBase+"/", func(w http.ResponseWriter, r *http.Request) {
+		if !requireToken(w, r) {
+			return
+		}
+		id := strings.TrimPrefix(r.URL.Path, aclBase+"/")
+		mu.Lock()
+		defer mu.Unlock()
+		switch r.Method {
+		case http.MethodDelete:
+			delete(acls, id)
+			writeEnvelope(w, 0, "", nil)
+		default: // PUT
+			var in map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&in)
+			in["id"] = id
+			acls[id] = in
+			writeEnvelope(w, 0, "", in)
+		}
+	})
+
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 	return srv

@@ -182,6 +182,17 @@ func (r *networkResource) apply(ctx context.Context, n *omada.Network, m *networ
 	return diags
 }
 
+// Create attempts to create a network via the /api/v2 endpoint.
+//
+// KNOWN LIMITATION: on v6.2 controllers, creating a *new* "interface" (routed)
+// network is not supported here. The controller's web UI creates networks
+// through the official Omada OpenAPI (`/openapi/v1/.../networks/confirm`), which
+// requires client-credentials auth (a separate token flow) rather than the web
+// session this provider uses; the /api/v2 endpoint rejects the create (it
+// demands write-only fields like `proto` and ultimately returns a generic
+// error). Import, read, update and delete of existing networks all work.
+// Creating brand-new networks needs OpenAPI support to be added — see the
+// provider README. VLAN-only (purpose="vlan") networks may still create.
 func (r *networkResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
 	var plan networkResourceModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)

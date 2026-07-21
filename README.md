@@ -8,17 +8,37 @@ the Omada UI uses. TP-Link publishes no documentation for it; endpoints and payl
 shapes are derived from the UI. This is deliberate: it's the only surface with full
 config coverage, including gateway/router settings that other providers omit.
 
-> **Status: early (Phase 1).** Provider config, authenticated client, and the
-> `omada_sites` / `omada_networks` data sources. Resources land in later phases.
+> **Status: in progress.** Five resources with verified CRUD (see the table
+> below) plus two data sources. More resources are being added.
 
-## Roadmap
+## Resources & data sources
 
-| Phase | Scope |
+All CRUD contracts below were verified against a live v6.2 controller.
+
+| Resource | Status |
 |---|---|
-| **1 — pipeline** ✅ scaffolded | provider config, auth client, `omada_sites` + `omada_networks` data sources, CI + signed release |
-| **2 — parity** | `omada_network`, `omada_wireless_network`, `omada_wlan_group`, `omada_ip_group`, `omada_firewall_acl`, `omada_port_profile`, `omada_device_switch`, `omada_device_ap`, `omada_site_settings` |
-| **3 — gateway (the point)** | `omada_port_forward`, `omada_static_route`, `omada_wan`, `omada_vpn` |
-| **4 — v1.0.0** | switch the homelab `lab/omada/` config to `wncservices/omada` |
+| `omada_network` | import / read / update / delete ✅ · **create: see limitation below** |
+| `omada_lan_dns` | full CRUD ✅ |
+| `omada_port_forward` | full CRUD ✅ |
+| `omada_ip_group` | full CRUD ✅ |
+| `omada_firewall_acl` | full CRUD ✅ |
+| data sources `omada_sites`, `omada_networks` | ✅ |
+
+Planned next: `omada_wireless_network`, `omada_wlan_group`, `omada_port_profile`,
+`omada_site_settings`, `omada_mdns_reflector`, `omada_vpn`.
+
+## Known limitations
+
+- **Creating a brand-new network is not yet supported.** The controller's web UI
+  creates networks through the official Omada **OpenAPI**
+  (`/openapi/v1/.../networks/confirm`), which needs client-credentials auth (a
+  separate token flow) — the `/api/v2` endpoint this provider uses rejects the
+  create (it demands write-only fields like `proto`). **Importing, reading,
+  updating and deleting** existing networks all work. Full create support needs
+  the OpenAPI auth flow added (register an Open API app under *Controller →
+  Settings → Platform Integration → Open API*).
+- Firewall ACL `customAclPorts` / `customAclDevices` are sent empty (not yet
+  modelled).
 
 ## Usage
 
@@ -34,7 +54,7 @@ provider "omada" {
   username = var.omada_username     # or OMADA_USERNAME
   password = var.omada_password     # or OMADA_PASSWORD
   # skip_tls_verify defaults to true (self-signed controller cert)
-  # site           defaults to "Default"
+  # site           defaults to the controller's primary site
 }
 
 data "omada_sites" "all" {}
