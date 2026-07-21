@@ -1,0 +1,34 @@
+# Compiled provider binary + release artifacts
+terraform-provider-omada
+dist/
+
+# Go
+*.test
+*.out
+coverage.*
+vendor/
+
+# Terraform (from local dev / examples)
+.terraform/
+.terraform.lock.hcl
+*.tfstate
+*.tfstate.*
+crash.log
+crash.*.log
+
+# Local overrides / secrets — never commit
+*.local
+.env
+!.env.example
+.terraformrc
+terraform.rc
+*.asc
+*.gpg
+*.pem
+*.key
+
+# Editors / OS
+.idea/
+.vscode/
+*.swp
+.DS_Store

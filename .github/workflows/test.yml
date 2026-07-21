@@ -1,0 +1,83 @@
+name: Tests
+
+on:
+  pull_request:
+    paths-ignore:
+      - "README.md"
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - "README.md"
+
+permissions:
+  contents: read
+
+env:
+  # Keep in sync with the version validated locally + the .golangci.yml format.
+  GOLANGCI_LINT_VERSION: v2.12.2
+
+jobs:
+  build:
+    name: Build & unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - run: go mod download
+      - run: go build -v ./...
+      - name: Unit tests
+        run: go test ./... -count=1
+
+  acctest:
+    name: Acceptance tests (mock controller)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: latest
+          terraform_wrapper: false
+      # Acceptance tests spin up an in-process mock Omada controller, so they
+      # need no real hardware or secrets — they run on every PR.
+      - name: Acceptance tests
+        env:
+          TF_ACC: "1"
+        run: go test ./... -v -count=1 -timeout 30m -run '^TestAcc'
+
+  lint:
+    name: golangci-lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Install golangci-lint
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh \
+            | sh -s -- -b "$(go env GOPATH)/bin" "${GOLANGCI_LINT_VERSION}"
+      - run: "$(go env GOPATH)/bin/golangci-lint run ./..."
+
+  docs:
+    name: Docs up to date
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - run: go generate ./...
+      - name: Fail if docs/ is stale
+        run: |
+          git diff --compact-summary --exit-code || \
+            (echo "::error::docs/ is out of date — run 'go generate ./...' and commit the result" && exit 1)
