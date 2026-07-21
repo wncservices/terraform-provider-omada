@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
+	"sync"
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-framework/provider"
@@ -80,17 +82,72 @@ func newMockController(t *testing.T) *httptest.Server {
 		})
 	})
 
-	mux.HandleFunc("/abc123/api/v2/sites/site-1/setting/lan/networks", func(w http.ResponseWriter, r *http.Request) {
+	// Stateful LAN-networks store, seeded with one network for the data-source
+	// tests and mutated by the resource acceptance test (create/update/delete).
+	var mu sync.Mutex
+	nextID := 1
+	networks := map[string]map[string]any{
+		"net-1": {
+			"id": "net-1", "name": "IoT", "purpose": "interface",
+			"vlan": 30, "gatewaySubnet": "192.168.30.1/24",
+			"dhcpSettings": map[string]any{"enable": true, "ipaddrStart": "192.168.30.2", "ipaddrEnd": "192.168.30.254", "leasetime": 120},
+		},
+	}
+	const netBase = "/abc123/api/v2/sites/site-1/setting/lan/networks"
+
+	// Collection: GET (list) + POST (create).
+	mux.HandleFunc(netBase, func(w http.ResponseWriter, r *http.Request) {
 		if !requireToken(w, r) {
 			return
 		}
-		writeEnvelope(w, 0, "", map[string]any{
-			"totalRows": 1, "currentPage": 1, "currentSize": 100,
-			"data": []map[string]any{{
-				"id": "net-1", "name": "IoT", "purpose": "interface",
-				"vlan": 30, "gatewaySubnet": "192.168.30.1/24", "dhcpGuardEnable": true,
-			}},
-		})
+		mu.Lock()
+		defer mu.Unlock()
+		switch r.Method {
+		case http.MethodPost:
+			var in map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&in)
+			id := fmt.Sprintf("gen-%d", nextID)
+			nextID++
+			in["id"] = id
+			networks[id] = in
+			writeEnvelope(w, 0, "", in)
+		default: // GET
+			data := make([]map[string]any, 0, len(networks))
+			for _, n := range networks {
+				data = append(data, n)
+			}
+			writeEnvelope(w, 0, "", map[string]any{
+				"totalRows": len(data), "currentPage": 1, "currentSize": 100, "data": data,
+			})
+		}
+	})
+
+	// Item: PATCH (update) + DELETE.
+	mux.HandleFunc(netBase+"/", func(w http.ResponseWriter, r *http.Request) {
+		if !requireToken(w, r) {
+			return
+		}
+		id := strings.TrimPrefix(r.URL.Path, netBase+"/")
+		mu.Lock()
+		defer mu.Unlock()
+		switch r.Method {
+		case http.MethodDelete:
+			delete(networks, id)
+			writeEnvelope(w, 0, "", nil)
+		default: // PATCH
+			var in map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&in)
+			cur := networks[id]
+			if cur == nil {
+				cur = map[string]any{}
+			}
+			for k, v := range in {
+				cur[k] = v
+			}
+			cur["id"] = id
+			networks[id] = cur
+			writeEnvelope(w, 0, "", cur)
+		}
 	})
 
 	srv := httptest.NewServer(mux)

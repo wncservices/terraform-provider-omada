@@ -109,10 +109,10 @@ func (p *OmadaProvider) Configure(ctx context.Context, req provider.ConfigureReq
 		skipTLS = false
 	}
 
+	// Empty site means "use the controller's primary site" — resolved lazily by
+	// the client so we don't hard-code a name like "Default" (real sites are
+	// often named e.g. "Home").
 	site := firstNonEmpty(config.Site, os.Getenv("OMADA_SITE"))
-	if site == "" {
-		site = "Default"
-	}
 
 	client, err := omada.NewClient(ctx, url, username, password, skipTLS)
 	if err != nil {
@@ -134,8 +134,9 @@ func (p *OmadaProvider) DataSources(_ context.Context) []func() datasource.DataS
 }
 
 func (p *OmadaProvider) Resources(_ context.Context) []func() resource.Resource {
-	// Phase 2+ resources are registered here.
-	return []func() resource.Resource{}
+	return []func() resource.Resource{
+		NewNetworkResource,
+	}
 }
 
 // providerData is passed to every data source / resource via Configure.

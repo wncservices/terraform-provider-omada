@@ -11,8 +11,9 @@ import (
 
 // Site is a controller site.
 type Site struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
+	ID      string `json:"id"`
+	Name    string `json:"name"`
+	Primary bool   `json:"primary"`
 }
 
 // ListSites returns every site on the controller, following pagination.
@@ -44,11 +45,23 @@ func (c *Client) ListSites(ctx context.Context) ([]Site, error) {
 	return all, nil
 }
 
-// SiteIDByName resolves a site name to its controller id.
-func (c *Client) SiteIDByName(ctx context.Context, name string) (string, error) {
+// ResolveSiteID returns the controller id for the given site name. If name is
+// empty it returns the primary site (or the only site, if there is just one).
+func (c *Client) ResolveSiteID(ctx context.Context, name string) (string, error) {
 	sites, err := c.ListSites(ctx)
 	if err != nil {
 		return "", err
+	}
+	if name == "" {
+		for _, s := range sites {
+			if s.Primary {
+				return s.ID, nil
+			}
+		}
+		if len(sites) == 1 {
+			return sites[0].ID, nil
+		}
+		return "", fmt.Errorf("no site specified and no primary site found; set the provider or resource `site`")
 	}
 	for _, s := range sites {
 		if s.Name == name {
