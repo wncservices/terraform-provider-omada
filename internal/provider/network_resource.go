@@ -8,9 +8,11 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/listplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringdefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
@@ -41,6 +43,7 @@ type networkResourceModel struct {
 	Purpose       types.String `tfsdk:"purpose"`
 	VLANID        types.Int64  `tfsdk:"vlan_id"`
 	GatewaySubnet types.String `tfsdk:"gateway_subnet"`
+	InterfaceIDs  types.List   `tfsdk:"interface_ids"`
 	DHCPEnabled   types.Bool   `tfsdk:"dhcp_enabled"`
 	DHCPStart     types.String `tfsdk:"dhcp_start"`
 	DHCPEnd       types.String `tfsdk:"dhcp_end"`
@@ -88,6 +91,13 @@ func (r *networkResource) Schema(_ context.Context, _ resource.SchemaRequest, re
 				Optional:            true,
 				Computed:            true,
 			},
+			"interface_ids": schema.ListAttribute{
+				MarkdownDescription: "Gateway LAN interface IDs this network attaches to. Required by the controller for `interface` networks; populated automatically on import.",
+				ElementType:         types.StringType,
+				Optional:            true,
+				Computed:            true,
+				PlanModifiers:       []planmodifier.List{listplanmodifier.UseStateForUnknown()},
+			},
 			"dhcp_enabled": schema.BoolAttribute{
 				MarkdownDescription: "Enable the DHCP server on this network.",
 				Optional:            true,
@@ -128,12 +138,18 @@ func (r *networkResource) siteName(m networkResourceModel) string {
 	return r.data.defaultSite
 }
 
-func (r *networkResource) inputFrom(m networkResourceModel) *omada.NetworkInput {
+func (r *networkResource) inputFrom(ctx context.Context, m networkResourceModel) (*omada.NetworkInput, diag.Diagnostics) {
+	var diags diag.Diagnostics
 	in := &omada.NetworkInput{
 		Name:          m.Name.ValueString(),
 		Purpose:       m.Purpose.ValueString(),
 		VLANID:        int(m.VLANID.ValueInt64()),
 		GatewaySubnet: m.GatewaySubnet.ValueString(),
+	}
+	if !m.InterfaceIDs.IsNull() && !m.InterfaceIDs.IsUnknown() {
+		var ids []string
+		diags.Append(m.InterfaceIDs.ElementsAs(ctx, &ids, false)...)
+		in.InterfaceIDs = ids
 	}
 	if !m.DHCPEnabled.IsNull() && !m.DHCPEnabled.IsUnknown() {
 		in.DHCPSettings = &omada.DHCPInput{
@@ -142,10 +158,11 @@ func (r *networkResource) inputFrom(m networkResourceModel) *omada.NetworkInput 
 			IPAddrEnd:   m.DHCPEnd.ValueString(),
 		}
 	}
-	return in
+	return in, diags
 }
 
-func (r *networkResource) apply(n *omada.Network, m *networkResourceModel) {
+func (r *networkResource) apply(ctx context.Context, n *omada.Network, m *networkResourceModel) diag.Diagnostics {
+	var diags diag.Diagnostics
 	m.ID = types.StringValue(n.ID)
 	m.Name = types.StringValue(n.Name)
 	m.Purpose = types.StringValue(n.Purpose)
@@ -154,6 +171,15 @@ func (r *networkResource) apply(n *omada.Network, m *networkResourceModel) {
 	m.DHCPEnabled = types.BoolValue(n.DHCPSettings.Enable)
 	m.DHCPStart = types.StringValue(n.DHCPSettings.IPAddrStart)
 	m.DHCPEnd = types.StringValue(n.DHCPSettings.IPAddrEnd)
+
+	ids := n.InterfaceIDs
+	if ids == nil {
+		ids = []string{}
+	}
+	list, d := types.ListValueFrom(ctx, types.StringType, ids)
+	diags.Append(d...)
+	m.InterfaceIDs = list
+	return diags
 }
 
 func (r *networkResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
@@ -169,13 +195,18 @@ func (r *networkResource) Create(ctx context.Context, req resource.CreateRequest
 		return
 	}
 
-	created, err := r.data.client.CreateNetwork(ctx, siteID, r.inputFrom(plan))
+	in, diags := r.inputFrom(ctx, plan)
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	created, err := r.data.client.CreateNetwork(ctx, siteID, in)
 	if err != nil {
 		resp.Diagnostics.AddError("Unable to create network", err.Error())
 		return
 	}
 
-	r.apply(created, &plan)
+	resp.Diagnostics.Append(r.apply(ctx, created, &plan)...)
 	plan.SiteID = types.StringValue(siteID)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
@@ -203,7 +234,7 @@ func (r *networkResource) Read(ctx context.Context, req resource.ReadRequest, re
 		return
 	}
 
-	r.apply(net, &state)
+	resp.Diagnostics.Append(r.apply(ctx, net, &state)...)
 	state.SiteID = types.StringValue(siteID)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }
@@ -221,13 +252,18 @@ func (r *networkResource) Update(ctx context.Context, req resource.UpdateRequest
 		return
 	}
 
-	updated, err := r.data.client.UpdateNetwork(ctx, siteID, plan.ID.ValueString(), r.inputFrom(plan))
+	in, diags := r.inputFrom(ctx, plan)
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	updated, err := r.data.client.UpdateNetwork(ctx, siteID, plan.ID.ValueString(), in)
 	if err != nil {
 		resp.Diagnostics.AddError("Unable to update network", err.Error())
 		return
 	}
 
-	r.apply(updated, &plan)
+	resp.Diagnostics.Append(r.apply(ctx, updated, &plan)...)
 	plan.SiteID = types.StringValue(siteID)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }

@@ -38,6 +38,7 @@ resource "omada_network" "iot" {
 - `dhcp_end` (String) Last address of the DHCP pool. Only when `dhcp_enabled`.
 - `dhcp_start` (String) First address of the DHCP pool. Only when `dhcp_enabled`.
 - `gateway_subnet` (String) Gateway IP + subnet in CIDR, e.g. `10.10.30.1/24`. Only for `interface` networks.
+- `interface_ids` (List of String) Gateway LAN interface IDs this network attaches to. Required by the controller for `interface` networks; populated automatically on import.
 - `purpose` (String) `interface` for a routed VLAN with a gateway + DHCP, or `vlan` for an L2-only VLAN.
 - `site` (String) Site name this network belongs to. Defaults to the controller's primary site. Changing this forces replacement.
 

@@ -17,6 +17,7 @@ type Network struct {
 	Purpose       string       `json:"purpose"`       // "interface" | "vlan"
 	VLANID        int          `json:"vlan"`          // controller field is "vlan"
 	GatewaySubnet string       `json:"gatewaySubnet"` // CIDR, e.g. 10.10.99.1/24
+	InterfaceIDs  []string     `json:"interfaceIds"`  // gateway LAN interfaces bound to an "interface" network
 	DHCPSettings  DHCPSettings `json:"dhcpSettings"`
 }
 
@@ -39,6 +40,7 @@ type NetworkInput struct {
 	Purpose       string     `json:"purpose"`
 	VLANID        int        `json:"vlan"`
 	GatewaySubnet string     `json:"gatewaySubnet,omitempty"`
+	InterfaceIDs  []string   `json:"interfaceIds,omitempty"`
 	DHCPSettings  *DHCPInput `json:"dhcpSettings,omitempty"`
 	IGMPSnoop     bool       `json:"igmpSnoopEnable"`
 }

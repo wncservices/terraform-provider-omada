@@ -23,6 +23,7 @@ resource "omada_network" "test" {
   name           = "Lab"
   vlan_id        = 40
   gateway_subnet = "10.10.40.1/24"
+  interface_ids  = ["port-2", "port-3"]
   dhcp_enabled   = true
   dhcp_start     = "10.10.40.100"
   dhcp_end       = "10.10.40.200"
@@ -33,6 +34,7 @@ resource "omada_network" "test" {
 					resource.TestCheckResourceAttr("omada_network.test", "vlan_id", "40"),
 					resource.TestCheckResourceAttr("omada_network.test", "purpose", "interface"),
 					resource.TestCheckResourceAttr("omada_network.test", "gateway_subnet", "10.10.40.1/24"),
+					resource.TestCheckResourceAttr("omada_network.test", "interface_ids.#", "2"),
 					resource.TestCheckResourceAttr("omada_network.test", "dhcp_enabled", "true"),
 					resource.TestCheckResourceAttr("omada_network.test", "dhcp_start", "10.10.40.100"),
 					resource.TestCheckResourceAttr("omada_network.test", "site_id", "site-1"),
