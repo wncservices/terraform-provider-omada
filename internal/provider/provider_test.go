@@ -257,6 +257,64 @@ func newMockController(t *testing.T) *httptest.Server {
 		}
 	})
 
+	// Stateful IP-group store. Item operations use /groups/{type}/{groupId}.
+	groups := map[string]map[string]any{}
+	grpNext := 1
+	const grpBase = "/abc123/api/v2/sites/site-1/setting/profiles/groups"
+	mux.HandleFunc(grpBase, func(w http.ResponseWriter, r *http.Request) {
+		if !requireToken(w, r) {
+			return
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		switch r.Method {
+		case http.MethodPost:
+			var in map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&in)
+			id := fmt.Sprintf("grp-%d", grpNext)
+			grpNext++
+			in["groupId"] = id
+			if in["type"] == nil {
+				in["type"] = 0
+			}
+			groups[id] = in
+			writeEnvelope(w, 0, "", nil)
+		default: // GET
+			data := make([]map[string]any, 0, len(groups))
+			for _, n := range groups {
+				data = append(data, n)
+			}
+			writeEnvelope(w, 0, "", map[string]any{"data": data})
+		}
+	})
+	mux.HandleFunc(grpBase+"/", func(w http.ResponseWriter, r *http.Request) {
+		if !requireToken(w, r) {
+			return
+		}
+		parts := strings.Split(strings.TrimPrefix(r.URL.Path, grpBase+"/"), "/")
+		id := parts[len(parts)-1]
+		mu.Lock()
+		defer mu.Unlock()
+		switch r.Method {
+		case http.MethodDelete:
+			delete(groups, id)
+			writeEnvelope(w, 0, "", nil)
+		default: // PATCH
+			var in map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&in)
+			cur := groups[id]
+			if cur == nil {
+				cur = map[string]any{}
+			}
+			for k, v := range in {
+				cur[k] = v
+			}
+			cur["groupId"] = id
+			groups[id] = cur
+			writeEnvelope(w, 0, "", cur)
+		}
+	})
+
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 	return srv

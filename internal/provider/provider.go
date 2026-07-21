@@ -138,6 +138,7 @@ func (p *OmadaProvider) Resources(_ context.Context) []func() resource.Resource 
 		NewNetworkResource,
 		NewLanDNSResource,
 		NewPortForwardResource,
+		NewIPGroupResource,
 	}
 }
 
