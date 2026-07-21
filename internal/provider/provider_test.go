@@ -150,6 +150,61 @@ func newMockController(t *testing.T) *httptest.Server {
 		}
 	})
 
+	// Stateful LAN DNS store. Create returns a null result (like the real
+	// controller), so the client resolves the new record by name via GET.
+	dns := map[string]map[string]any{}
+	dnsNext := 1
+	const dnsBase = "/abc123/api/v2/sites/site-1/setting/lan/dns"
+	mux.HandleFunc(dnsBase, func(w http.ResponseWriter, r *http.Request) {
+		if !requireToken(w, r) {
+			return
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		switch r.Method {
+		case http.MethodPost:
+			var in map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&in)
+			id := fmt.Sprintf("dns-%d", dnsNext)
+			dnsNext++
+			in["id"] = id
+			dns[id] = in
+			writeEnvelope(w, 0, "", nil)
+		default: // GET
+			data := make([]map[string]any, 0, len(dns))
+			for _, n := range dns {
+				data = append(data, n)
+			}
+			writeEnvelope(w, 0, "", map[string]any{"data": data})
+		}
+	})
+	mux.HandleFunc(dnsBase+"/", func(w http.ResponseWriter, r *http.Request) {
+		if !requireToken(w, r) {
+			return
+		}
+		id := strings.TrimPrefix(r.URL.Path, dnsBase+"/")
+		mu.Lock()
+		defer mu.Unlock()
+		switch r.Method {
+		case http.MethodDelete:
+			delete(dns, id)
+			writeEnvelope(w, 0, "", nil)
+		default: // PATCH
+			var in map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&in)
+			cur := dns[id]
+			if cur == nil {
+				cur = map[string]any{}
+			}
+			for k, v := range in {
+				cur[k] = v
+			}
+			cur["id"] = id
+			dns[id] = cur
+			writeEnvelope(w, 0, "", cur)
+		}
+	})
+
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 	return srv
