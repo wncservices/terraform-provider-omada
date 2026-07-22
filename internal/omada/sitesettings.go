@@ -8,10 +8,11 @@ import (
 	"fmt"
 )
 
-// Site settings are a large singleton object (GET /setting). This provider
-// manages a small subset (currently the device LED toggle) via read-modify-write
-// so the rest of the object is preserved. Update uses PATCH (the documented
-// verb for this endpoint).
+// Site settings are one large singleton object (GET /setting) made of grouped
+// sub-objects (led, mesh, roaming, beaconControl, ...). This provider manages
+// the configurable groups; everything else in the object — notably
+// `deviceAccount` (a credential) and read-only metadata — is left untouched by
+// the read-modify-write in PatchSiteSettings. Update uses PATCH.
 
 func settingPath(siteID string) string {
 	return fmt.Sprintf("/sites/%s/setting", siteID)
@@ -26,33 +27,51 @@ func (c *Client) GetSiteSettings(ctx context.Context, siteID string) (map[string
 	return out, nil
 }
 
-// GetLEDEnable reports whether the device status LEDs are on.
-func (c *Client) GetLEDEnable(ctx context.Context, siteID string) (bool, error) {
-	cur, err := c.GetSiteSettings(ctx, siteID)
-	if err != nil {
-		return false, err
+// SettingBool reads a boolean from a settings group, e.g. ("mesh","meshEnable").
+func SettingBool(st map[string]any, group, key string) (bool, bool) {
+	g, ok := st[group].(map[string]any)
+	if !ok {
+		return false, false
 	}
-	if led, ok := cur["led"].(map[string]any); ok {
-		if v, ok := led["enable"].(bool); ok {
-			return v, nil
-		}
-	}
-	return false, nil
+	v, ok := g[key].(bool)
+	return v, ok
 }
 
-// SetLEDEnable toggles the device status LEDs, preserving the rest of the led
-// object (read-modify-write).
-func (c *Client) SetLEDEnable(ctx context.Context, siteID string, enable bool) error {
+// SettingInt reads a number from a settings group (JSON numbers are float64).
+func SettingInt(st map[string]any, group, key string) (int64, bool) {
+	g, ok := st[group].(map[string]any)
+	if !ok {
+		return 0, false
+	}
+	f, ok := g[key].(float64)
+	return int64(f), ok
+}
+
+// PatchSiteSettings applies grouped overrides. Each touched group is merged on
+// top of its current value so unmanaged keys inside that group survive, and
+// groups that aren't mentioned are not sent at all.
+func (c *Client) PatchSiteSettings(ctx context.Context, siteID string, groups map[string]map[string]any) error {
+	if len(groups) == 0 {
+		return nil
+	}
 	cur, err := c.GetSiteSettings(ctx, siteID)
 	if err != nil {
 		return err
 	}
-	led, _ := cur["led"].(map[string]any)
-	if led == nil {
-		led = map[string]any{}
+	payload := map[string]any{}
+	for g, kv := range groups {
+		merged := map[string]any{}
+		if base, ok := cur[g].(map[string]any); ok {
+			for k, v := range base {
+				merged[k] = v
+			}
+		}
+		for k, v := range kv {
+			merged[k] = v
+		}
+		payload[g] = merged
 	}
-	led["enable"] = enable
-	if err := c.Do(ctx, "PATCH", settingPath(siteID), map[string]any{"led": led}, nil); err != nil {
+	if err := c.Do(ctx, "PATCH", settingPath(siteID), payload, nil); err != nil {
 		return fmt.Errorf("updating site settings: %w", err)
 	}
 	return nil

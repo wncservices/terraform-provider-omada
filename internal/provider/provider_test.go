@@ -612,8 +612,37 @@ func newMockController(t *testing.T) *httptest.Server {
 		}
 	})
 
-	// Site-settings singleton (GET /setting object, PATCH merges).
-	siteSettings := map[string]any{"led": map[string]any{"enable": true}}
+	// Site-settings singleton (GET /setting object, PATCH merges top-level groups).
+	// deviceAccount is included deliberately: the provider must never send it,
+	// so it should survive every update untouched.
+	siteSettings := map[string]any{
+		"led":                      map[string]any{"enable": true},
+		"lldp":                     map[string]any{"enable": true},
+		"advancedFeature":          map[string]any{"enable": true},
+		"autoUpgrade":              map[string]any{"enable": false},
+		"channelLimit":             map[string]any{"enable": false},
+		"rememberDevice":           map[string]any{"enable": true},
+		"airtimeFairness":          map[string]any{"enable2g": false, "enable5g": false, "enable6g": false},
+		"alert":                    map[string]any{"enable": false, "delayEnable": true, "delay": 60},
+		"bandSteering":             map[string]any{"enable": false, "connectionThreshold": 30, "differenceThreshold": 4, "maxFailures": 5},
+		"bandSteeringForMultiBand": map[string]any{"mode": 1},
+		"mesh":                     map[string]any{"meshEnable": true, "autoFailoverEnable": true, "defGatewayEnable": true, "fullSector": true},
+		"remoteLog":                map[string]any{"enable": false, "port": 514, "moreClientLog": false},
+		"speedTest":                map[string]any{"enable": false, "interval": 120},
+		"roaming": map[string]any{
+			"fastRoamingEnable": true, "aiRoamingEnable": false, "dualBand11kReportEnable": true,
+			"forceDisassociationEnable": false, "nonStickRoamingEnable": false, "nonPingPongRoamingEnable": false,
+		},
+		"beaconControl": map[string]any{
+			"beaconIntvMode2g": 0, "dtimPeriod2g": 1, "rtsThreshold2g": 2347, "fragmentationThreshold2g": 2346,
+			"beaconIntvMode5g": 0, "dtimPeriod5g": 1, "rtsThreshold5g": 2347, "fragmentationThreshold5g": 2346,
+			"beaconInterval6g": 100, "beaconIntvMode6g": 0, "dtimPeriod6g": 1, "rtsThreshold6g": 2347,
+			"fragmentationThreshold6g": 2346,
+		},
+		// #nosec G101 -- test fixture, not a credential: it exists purely to assert
+		// the provider never sends deviceAccount in its patch.
+		"deviceAccount": map[string]any{"username": "device-admin", "password": "must-not-be-touched"},
+	}
 	mux.HandleFunc("/abc123/api/v2/sites/site-1/setting", func(w http.ResponseWriter, r *http.Request) {
 		if !requireToken(w, r) {
 			return
