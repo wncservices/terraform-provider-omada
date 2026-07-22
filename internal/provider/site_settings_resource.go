@@ -131,9 +131,16 @@ func (r *siteSettingsResource) Update(ctx context.Context, req resource.UpdateRe
 func (r *siteSettingsResource) Delete(_ context.Context, _ resource.DeleteRequest, _ *resource.DeleteResponse) {
 }
 
-// ImportState accepts "<site_name>" (or empty for the primary site).
+// ImportState takes the site name, e.g.
+//
+//	terraform import omada_site_settings.this Home
+//
+// A singleton has no controller-side id of its own, so the site name is the
+// import key; Read resolves it to the site id.
 func (r *siteSettingsResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
-	if req.ID != "" && req.ID != "primary" {
-		resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("site"), req.ID)...)
+	if req.ID == "" {
+		resp.Diagnostics.AddError("Invalid import ID", "expected the site name, e.g. `terraform import omada_site_settings.this Home`")
+		return
 	}
+	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("site"), req.ID)...)
 }

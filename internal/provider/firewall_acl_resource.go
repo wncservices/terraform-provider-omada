@@ -305,23 +305,25 @@ func (r *firewallACLResource) Read(ctx context.Context, req resource.ReadRequest
 			return
 		}
 	}
-	// On import only the id is known, so the ACL type isn't in state yet. Search
-	// every type for the id rather than assuming `gateway`; apply() then records
-	// the type it was actually found under.
+	// Look the ACL up by its known type first. On import the type isn't reliably
+	// in state (it may be absent, or carry the schema default), so fall back to
+	// searching every type for the id — apply() then records the type it was
+	// actually found under. Without this, non-gateway (switch/EAP) ACLs are
+	// unimportable.
 	var a *omada.ACL
-	var err error
-	if state.Type.IsNull() || state.Type.IsUnknown() || state.Type.ValueString() == "" {
+	id := state.ID.ValueString()
+	if !state.Type.IsNull() && !state.Type.IsUnknown() && state.Type.ValueString() != "" {
+		a, _ = r.data.client.GetACL(ctx, siteID, r.aclType(state), id)
+	}
+	if a == nil {
 		for _, t := range []int{omada.ACLTypeGateway, omada.ACLTypeSwitch, omada.ACLTypeEAP} {
-			if found, ferr := r.data.client.GetACL(ctx, siteID, t, state.ID.ValueString()); ferr == nil {
-				a, err = found, nil
+			if found, ferr := r.data.client.GetACL(ctx, siteID, t, id); ferr == nil {
+				a = found
 				break
 			}
-			err = fmt.Errorf("acl %q not found in any type", state.ID.ValueString())
 		}
-	} else {
-		a, err = r.data.client.GetACL(ctx, siteID, r.aclType(state), state.ID.ValueString())
 	}
-	if err != nil || a == nil {
+	if a == nil {
 		resp.State.RemoveResource(ctx)
 		return
 	}

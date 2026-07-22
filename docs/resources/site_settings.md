@@ -32,3 +32,14 @@ resource "omada_site_settings" "this" {
 ### Read-Only
 
 - `id` (String) The site ID.
+
+## Import
+
+Import is supported using the following syntax:
+
+The [`terraform import` command](https://developer.hashicorp.com/terraform/cli/commands/import) can be used, for example:
+
+```shell
+# Site settings are a singleton — import by SITE NAME (not an object id):
+terraform import omada_site_settings.this Home
+```
