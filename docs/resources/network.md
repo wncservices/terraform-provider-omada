@@ -3,12 +3,15 @@
 page_title: "omada_network Resource - omada"
 subcategory: ""
 description: |-
-  Manages a LAN network (VLAN) on the Omada controller.
+  Manages a LAN network (VLAN) on the Omada controller, including its DHCP server, DHCP options and per-VLAN switching/security toggles.
+  Unset attributes keep their current controller value, and derived fields (address-pool ranges, counters) are preserved on update.
 ---
 
 # omada_network (Resource)
 
-Manages a LAN network (VLAN) on the Omada controller.
+Manages a LAN network (VLAN) on the Omada controller, including its DHCP server, DHCP options and per-VLAN switching/security toggles.
+
+Unset attributes keep their current controller value, and derived fields (address-pool ranges, counters) are preserved on update.
 
 ## Example Usage
 
@@ -34,18 +37,49 @@ resource "omada_network" "iot" {
 
 ### Optional
 
+- `access_control_rule` (Boolean) Whether ACL rules apply to this network.
+- `all_lan` (Boolean) Applies to all LANs.
+- `application` (Number) Application code.
+- `arp_detection_enable` (Boolean) ARP inspection/detection.
+- `dhcp_dns_mode` (String) DHCP DNS mode, e.g. `auto`.
 - `dhcp_enabled` (Boolean) Enable the DHCP server on this network.
-- `dhcp_end` (String) Last address of the DHCP pool. Only when `dhcp_enabled`.
-- `dhcp_start` (String) First address of the DHCP pool. Only when `dhcp_enabled`.
+- `dhcp_end` (String) Last address of the DHCP pool.
+- `dhcp_guard_enable` (Boolean) Rogue-DHCP protection (distinct from the DHCP server).
+- `dhcp_l2_relay_enable` (Boolean) DHCP L2 relay.
+- `dhcp_lease_time` (Number) DHCP lease time (minutes).
+- `dhcp_options` (Attributes List) DHCP options handed out on this network (e.g. code 138 for a controller address). (see [below for nested schema](#nestedatt--dhcp_options))
+- `dhcp_start` (String) First address of the DHCP pool.
+- `dhcpv6_guard_enable` (Boolean) Rogue-DHCPv6 protection.
+- `fast_leave_enable` (Boolean) IGMP fast-leave.
 - `gateway_subnet` (String) Gateway IP + subnet in CIDR, e.g. `10.10.30.1/24`. Only for `interface` networks.
-- `interface_ids` (List of String) Gateway LAN interface IDs this network attaches to. Required by the controller for `interface` networks; populated automatically on import.
+- `igmp_snoop_enable` (Boolean) IGMP snooping.
+- `interface_ids` (List of String) Gateway LAN interface IDs this network attaches to.
+- `ipv6_config_enable` (Number) IPv6 configuration mode for the network (0 = disabled).
+- `isolation` (Boolean) Isolate this network from other LANs (guest isolation).
+- `mld_snoop_enable` (Boolean) MLD snooping (IPv6).
+- `portal_enable` (Boolean) Captive portal on this network.
 - `purpose` (String) `interface` for a routed VLAN with a gateway + DHCP, or `vlan` for an L2-only VLAN.
-- `site` (String) Site name this network belongs to. Defaults to the controller's primary site. Changing this forces replacement.
+- `qos_queue_enable` (Boolean) QoS queueing.
+- `rate_limit_enable` (Boolean) Rate limiting on this network.
+- `site` (String) Site name. Defaults to the controller's primary site. Changing this forces replacement.
+- `vlan_type` (Number) VLAN type code.
 
 ### Read-Only
 
 - `id` (String) Controller-assigned network ID.
-- `site_id` (String) Resolved site ID.
+- `site_id` (String)
+
+<a id="nestedatt--dhcp_options"></a>
+### Nested Schema for `dhcp_options`
+
+Required:
+
+- `code` (Number) DHCP option code.
+- `value` (String) Option value.
+
+Optional:
+
+- `type` (Number) Option value type.
 
 ## Import
 

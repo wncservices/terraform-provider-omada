@@ -89,8 +89,24 @@ func newMockController(t *testing.T) *httptest.Server {
 	networks := map[string]map[string]any{
 		"net-1": {
 			"id": "net-1", "name": "IoT", "purpose": "interface",
-			"vlan": 30, "gatewaySubnet": "192.168.30.1/24",
-			"dhcpSettings": map[string]any{"enable": true, "ipaddrStart": "192.168.30.2", "ipaddrEnd": "192.168.30.254", "leasetime": 120},
+			"vlan": 30, "vlanType": 0, "application": 0,
+			"gatewaySubnet": "192.168.30.1/24",
+			// per-VLAN switching/security toggles
+			"isolation": true, "allLan": false, "portal": false, "rateLimit": false,
+			"qosQueueEnable": false, "accessControlRule": true, "arpDetectionEnable": true,
+			"igmpSnoopEnable": false, "fastLeaveEnable": false, "mldSnoopEnable": false,
+			"dhcpL2RelayEnable":    false,
+			"dhcpGuard":            map[string]any{"enable": false},
+			"dhcpv6Guard":          map[string]any{"enable": false},
+			"lanNetworkIpv6Config": map[string]any{"enable": 0},
+			// derived keys the provider must preserve on update
+			"ipRangePool": []map[string]any{{"ipaddrStart": "192.168.30.2", "ipaddrEnd": "192.168.30.254"}},
+			"totalIpNum":  253,
+			"dhcpSettings": map[string]any{
+				"enable": true, "ipaddrStart": "192.168.30.2", "ipaddrEnd": "192.168.30.254",
+				"leasetime": 120, "dhcpns": "auto",
+				"options": []map[string]any{{"code": 138, "type": 1, "value": "10.10.20.50"}},
+			},
 		},
 	}
 	const netBase = "/abc123/api/v2/sites/site-1/setting/lan/networks"

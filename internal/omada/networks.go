@@ -9,65 +9,92 @@ import (
 	"fmt"
 )
 
-// Network is a LAN network (VLAN interface) on a site. Field mappings verified
-// against a live v6.2 controller (GET /sites/{id}/setting/lan/networks).
-type Network struct {
-	ID            string       `json:"id"`
-	Name          string       `json:"name"`
-	Purpose       string       `json:"purpose"`       // "interface" | "vlan"
-	VLANID        int          `json:"vlan"`          // controller field is "vlan"
-	GatewaySubnet string       `json:"gatewaySubnet"` // CIDR, e.g. 10.10.99.1/24
-	InterfaceIDs  []string     `json:"interfaceIds"`  // gateway LAN interfaces bound to an "interface" network
-	DHCPSettings  DHCPSettings `json:"dhcpSettings"`
+// EnableFlag is the common {"enable": bool} sub-object.
+type EnableFlag struct {
+	Enable bool `json:"enable"`
 }
 
-// DHCPSettings is the nested DHCP server config. Note: this is distinct from the
-// controller's "dhcpGuard" object, which is a separate rogue-DHCP protection.
+// IntEnable is the {"enable": int} variant used by lanNetworkIpv6Config.
+type IntEnable struct {
+	Enable int `json:"enable"`
+}
+
+// DHCPOption is a DHCP option handed out on a network (e.g. code 138 -> a
+// controller/AP address).
+type DHCPOption struct {
+	Code  int    `json:"code"`
+	Type  int    `json:"type"`
+	Value string `json:"value"`
+}
+
+// DHCPSettings is the nested DHCP server config. Note: distinct from dhcpGuard,
+// which is rogue-DHCP protection.
 type DHCPSettings struct {
-	Enable       bool   `json:"enable"`
-	IPAddrStart  string `json:"ipaddrStart"`
-	IPAddrEnd    string `json:"ipaddrEnd"`
-	LeaseTimeMin int    `json:"leasetime"`
+	Enable      bool         `json:"enable"`
+	IPAddrStart string       `json:"ipaddrStart"`
+	IPAddrEnd   string       `json:"ipaddrEnd"`
+	LeaseTime   int          `json:"leasetime"`
+	DNSMode     string       `json:"dhcpns"`
+	Options     []DHCPOption `json:"options"`
+}
+
+// Network is a LAN network (VLAN interface) on a site. Field mappings verified
+// against a live v6.2 controller (GET /sites/{id}/setting/lan/networks).
+// Derived/read-only fields (ipRangeStart/End, ipRangePool, totalIpNum, state,
+// deviceMac, ...) are intentionally not modelled; UpdateNetwork preserves them.
+type Network struct {
+	ID            string   `json:"id"`
+	Name          string   `json:"name"`
+	Purpose       string   `json:"purpose"` // "interface" | "vlan"
+	VLANID        int      `json:"vlan"`
+	VLANType      int      `json:"vlanType"`
+	Application   int      `json:"application"`
+	GatewaySubnet string   `json:"gatewaySubnet"`
+	InterfaceIDs  []string `json:"interfaceIds"`
+
+	Isolation         bool `json:"isolation"`
+	AllLan            bool `json:"allLan"`
+	Portal            bool `json:"portal"`
+	RateLimit         bool `json:"rateLimit"`
+	QosQueueEnable    bool `json:"qosQueueEnable"`
+	AccessControlRule bool `json:"accessControlRule"`
+	ArpDetection      bool `json:"arpDetectionEnable"`
+	IGMPSnoop         bool `json:"igmpSnoopEnable"`
+	FastLeave         bool `json:"fastLeaveEnable"`
+	MLDSnoop          bool `json:"mldSnoopEnable"`
+	DHCPL2Relay       bool `json:"dhcpL2RelayEnable"`
+
+	DHCPGuard    EnableFlag   `json:"dhcpGuard"`
+	DHCPv6Guard  EnableFlag   `json:"dhcpv6Guard"`
+	IPv6Config   IntEnable    `json:"lanNetworkIpv6Config"`
+	DHCPSettings DHCPSettings `json:"dhcpSettings"`
 }
 
 // DHCPEnabled reports whether the DHCP server is enabled on this network.
 func (n Network) DHCPEnabled() bool { return n.DHCPSettings.Enable }
 
-// NetworkInput is the payload sent when creating or updating a network. Only
-// the fields we manage are sent; the controller fills the rest with defaults.
-type NetworkInput struct {
-	Name          string     `json:"name"`
-	Purpose       string     `json:"purpose"`
-	VLANID        int        `json:"vlan"`
-	GatewaySubnet string     `json:"gatewaySubnet,omitempty"`
-	InterfaceIDs  []string   `json:"interfaceIds,omitempty"`
-	DHCPSettings  *DHCPInput `json:"dhcpSettings,omitempty"`
-	IGMPSnoop     bool       `json:"igmpSnoopEnable"`
-}
-
-// DHCPInput is the DHCP-server portion of a NetworkInput.
-type DHCPInput struct {
-	Enable      bool   `json:"enable"`
-	IPAddrStart string `json:"ipaddrStart,omitempty"`
-	IPAddrEnd   string `json:"ipaddrEnd,omitempty"`
-}
-
 func networksPath(siteID string) string {
 	return fmt.Sprintf("/sites/%s/setting/lan/networks", siteID)
 }
 
-// CreateNetwork creates a LAN network and returns the created object.
-func (c *Client) CreateNetwork(ctx context.Context, siteID string, in *NetworkInput) (*Network, error) {
+func networksListPath(siteID string) string {
+	return networksPath(siteID) + "?currentPage=1&currentPageSize=1000"
+}
+
+// CreateNetwork creates a LAN network.
+//
+// NOTE: creating a brand-new "interface" network is not supported by this
+// endpoint on v6.2 controllers (the UI uses the Omada OpenAPI). See the README.
+func (c *Client) CreateNetwork(ctx context.Context, siteID string, fields map[string]any) (*Network, error) {
+	name, _ := fields["name"].(string)
 	var created Network
-	if err := c.Do(ctx, "POST", networksPath(siteID), in, &created); err != nil {
+	if err := c.Do(ctx, "POST", networksPath(siteID), fields, &created); err != nil {
 		return nil, fmt.Errorf("creating network: %w", err)
 	}
-	// Some controller versions return only an id on create; fall back to a
-	// lookup by name so callers always get a fully-populated object.
-	if created.ID == "" {
-		return c.getNetworkByName(ctx, siteID, in.Name)
+	if created.ID != "" {
+		return &created, nil
 	}
-	return &created, nil
+	return c.getNetworkByName(ctx, siteID, name)
 }
 
 // GetNetwork returns a single network by id. The controller has no single-object
@@ -98,9 +125,31 @@ func (c *Client) getNetworkByName(ctx context.Context, siteID, name string) (*Ne
 	return nil, fmt.Errorf("network %q not found on site %q after create", name, siteID)
 }
 
-// UpdateNetwork patches an existing network.
-func (c *Client) UpdateNetwork(ctx context.Context, siteID, id string, in *NetworkInput) (*Network, error) {
-	if err := c.Do(ctx, "PATCH", networksPath(siteID)+"/"+id, in, nil); err != nil {
+// UpdateNetwork does a read-modify-write: fetch the current object, overlay the
+// managed fields, and PATCH the whole thing back so derived/unmodelled fields
+// (ipRangePool, totalIpNum, ...) survive.
+func (c *Client) UpdateNetwork(ctx context.Context, siteID, id string, fields map[string]any) (*Network, error) {
+	cur, err := c.RawByID(ctx, networksListPath(siteID), "id", id)
+	if err != nil {
+		return nil, err
+	}
+	for k, v := range fields {
+		if k == "dhcpSettings" {
+			// merge into the existing dhcpSettings so ipRangePool etc. survive
+			base, _ := cur["dhcpSettings"].(map[string]any)
+			merged := map[string]any{}
+			for bk, bv := range base {
+				merged[bk] = bv
+			}
+			for nk, nv := range v.(map[string]any) {
+				merged[nk] = nv
+			}
+			cur["dhcpSettings"] = merged
+			continue
+		}
+		cur[k] = v
+	}
+	if err := c.Do(ctx, "PATCH", networksPath(siteID)+"/"+id, cur, nil); err != nil {
 		return nil, fmt.Errorf("updating network %q: %w", id, err)
 	}
 	return c.GetNetwork(ctx, siteID, id)
@@ -122,7 +171,7 @@ func (c *Client) ListNetworks(ctx context.Context, siteID string) ([]Network, er
 
 	for {
 		var pr PaginatedResult
-		path := fmt.Sprintf("/sites/%s/setting/lan/networks?currentPage=%d&currentPageSize=%d", siteID, page, size)
+		path := fmt.Sprintf("%s?currentPage=%d&currentPageSize=%d", networksPath(siteID), page, size)
 		if err := c.Do(ctx, "GET", path, nil, &pr); err != nil {
 			return nil, fmt.Errorf("listing networks: %w", err)
 		}
