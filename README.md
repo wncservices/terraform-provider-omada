@@ -8,8 +8,9 @@ the Omada UI uses. TP-Link publishes no documentation for it; endpoints and payl
 shapes are derived from the UI. This is deliberate: it's the only surface with full
 config coverage, including gateway/router settings that other providers omit.
 
-> **Status: in progress.** Five resources with verified CRUD (see the table
-> below) plus two data sources. More resources are being added.
+> **Status: released.** `v0.1.0` is published to the Terraform Registry —
+> **11 resources** (table below) + 2 data sources, each with acceptance tests in
+> CI. Verified against a live Omada v6.2 controller.
 
 ## Resources & data sources
 
@@ -56,7 +57,10 @@ against a real v6.2 controller with throwaway objects (created and deleted).
 ```hcl
 terraform {
   required_providers {
-    omada = { source = "wncservices/omada" }
+    omada = {
+      source  = "wncservices/omada"
+      version = "~> 0.1"
+    }
   }
 }
 
@@ -70,6 +74,11 @@ provider "omada" {
 
 data "omada_sites" "all" {}
 ```
+
+Bringing existing controller config under management? Write the resource plus a
+Terraform `import { ... }` block and iterate `terraform plan` to a zero-diff
+result — nothing is recreated. Most resources import by their controller ID (or
+`"<site>/<id>"`); see each resource's docs for the exact form.
 
 ## Local development
 
@@ -147,14 +156,15 @@ Real-controller validation is done manually via the `dev_overrides` flow above.
 Because the web API is undocumented, new resources are built by capturing what the
 UI does:
 
-1. Open the Omada UI with browser devtools, perform the action (e.g. add a
-   port-forward), and record the request path, method, and JSON body.
-2. Confirm by replaying it through the client.
-3. Freeze a representative response as `internal/omada/testdata/*.json` and add a
-   unit test.
+1. Read the controller's `/api/v2` responses (and, where the path is built
+   dynamically in the UI, mine the web-app JS or capture the request in browser
+   devtools) to learn the endpoint, method, and JSON body.
+2. Confirm by replaying it through the client — and, for write paths, against a
+   real controller with a throwaway object that is created and deleted.
+3. Add an acceptance test that exercises the flow against the in-process mock.
 
-> ⚠️ Some struct field mappings in `internal/omada/` (notably `networks.go`) are
-> provisional and must be confirmed against a live controller during Phase 1.
+Verbs vary per endpoint (PATCH vs PUT, `/{id}` vs `/{type}/{id}`) and were each
+confirmed live for the resources marked "verified live" in the table above.
 
 ## References
 
