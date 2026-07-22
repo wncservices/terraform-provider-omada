@@ -9,7 +9,7 @@ shapes are derived from the UI. This is deliberate: it's the only surface with f
 config coverage, including gateway/router settings that other providers omit.
 
 > **Status: released.** `v0.1.0` is published to the Terraform Registry —
-> **11 resources** (table below) + 2 data sources, each with acceptance tests in
+> **12 resources** (table below) + 3 data sources, each with acceptance tests in
 > CI. Verified against a live Omada v6.2 controller.
 
 ## Resources & data sources
@@ -26,8 +26,9 @@ config coverage, including gateway/router settings that other providers omit.
 | `omada_port_profile` | full CRUD; managed field subset (rest preserved via read-modify-write) |
 | `omada_wireless_network` | SSID; managed field subset; `psk` is write-only |
 | `omada_vpn` | manages `name`/`enable` only; **write verbs inferred, not live-validated** |
+| `omada_static_route` | full CRUD verified live ✅ (update is `PUT` — `PATCH` is rejected) |
 | `omada_site_settings` | singleton; manages the device-LED toggle (subset) |
-| data sources `omada_sites`, `omada_networks` | ✅ |
+| data sources `omada_sites`, `omada_networks`, `omada_wan` | ✅ (`omada_wan` is **read-only by design** — see limitations) |
 
 Every resource has mock-backed acceptance tests (create → import → update) that run
 in CI. Resources marked "verified live" had their exact endpoint + verbs confirmed
@@ -51,6 +52,13 @@ against a real v6.2 controller with throwaway objects (created and deleted).
 - `omada_port_profile`, `omada_wireless_network` and `omada_site_settings` manage a
   practical subset of fields; unmanaged fields are preserved on update
   (read-modify-write).
+- **WAN settings are exposed read-only** (the `omada_wan` data source), not as a
+  managed resource. `/setting/wan/networks` is a single large document that mixes
+  configuration with read-only `support*` capability flags, and its write verbs are
+  undocumented. Unlike every other endpoint here, the write path can't be validated
+  with a throwaway object: the only object is the live WAN, and a bad write drops
+  the internet for the whole site. Read WAN state with the data source; change it in
+  the Omada UI.
 
 ## Usage
 
