@@ -61,3 +61,17 @@ Optional:
 - `lan_to_wan` (Boolean)
 - `vpn_in_ids` (List of String)
 - `wan_in_ids` (List of String)
+
+## Import
+
+Import is supported using the following syntax:
+
+The [`terraform import` command](https://developer.hashicorp.com/terraform/cli/commands/import) can be used, for example:
+
+```shell
+# Import by rule ID (the ACL type — gateway/switch/eap — is detected automatically):
+terraform import omada_firewall_acl.mgmt 692c13f675ee724076c80d44
+
+# Or scope to a named site:
+terraform import omada_firewall_acl.mgmt 'Home/692c13f675ee724076c80d44'
+```
