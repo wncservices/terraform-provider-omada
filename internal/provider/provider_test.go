@@ -505,6 +505,12 @@ func newMockController(t *testing.T) *httptest.Server {
 			id := fmt.Sprintf("prof-%d", profNext)
 			profNext++
 			in["id"] = id
+			// Simulate controller-owned keys the provider must not clobber.
+			in["prohibitModify"] = false
+			in["flag"] = 2
+			if stp, ok := in["spanningTreeSetting"].(map[string]any); ok {
+				stp["instances"] = []any{}
+			}
 			profs[id] = in
 			writeEnvelope(w, 0, "", nil)
 		default:
@@ -675,9 +681,38 @@ func newMockController(t *testing.T) *httptest.Server {
 		writeEnvelope(w, 0, "", siteSettings)
 	})
 
+	// Unauthenticated debug endpoints so tests can assert on the RAW stored
+	// objects — specifically that keys the provider never models (STP
+	// `instances`, and the WiFi `pskSetting.securityKey`) survive updates.
+	mux.HandleFunc("/debug/ssids", func(w http.ResponseWriter, _ *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		_ = json.NewEncoder(w).Encode(ssids)
+	})
+	mux.HandleFunc("/debug/profiles", func(w http.ResponseWriter, _ *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		_ = json.NewEncoder(w).Encode(profs)
+	})
+
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 	return srv
+}
+
+// rawStore fetches one of the mock's debug endpoints (e.g. "ssids", "profiles").
+func rawStore(t *testing.T, base, kind string) map[string]map[string]any {
+	t.Helper()
+	resp, err := http.Get(base + "/debug/" + kind)
+	if err != nil {
+		t.Fatalf("debug fetch: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	out := map[string]map[string]any{}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		t.Fatalf("debug decode: %v", err)
+	}
+	return out
 }
 
 func writeEnvelope(w http.ResponseWriter, code int, msg string, result any) {

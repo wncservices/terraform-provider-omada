@@ -3,12 +3,15 @@
 page_title: "omada_wireless_network Resource - omada"
 subcategory: ""
 description: |-
-  Manages a wireless SSID within a WLAN group. A managed subset of fields is exposed; other SSID settings are preserved on update.
+  Manages a wireless SSID within a WLAN group: bands, security, VLAN tagging, PMF, roaming, rate limiting, multicast and MAC filtering.
+  psk is write-only — it is never read back into state, so the WiFi password does not land in your repo or state file. Updates deep-merge the PSK object, so an update that omits psk leaves the existing key untouched.
 ---
 
 # omada_wireless_network (Resource)
 
-Manages a wireless SSID within a WLAN group. A managed subset of fields is exposed; other SSID settings are preserved on update.
+Manages a wireless SSID within a WLAN group: bands, security, VLAN tagging, PMF, roaming, rate limiting, multicast and MAC filtering.
+
+`psk` is **write-only** — it is never read back into state, so the WiFi password does not land in your repo or state file. Updates deep-merge the PSK object, so an update that omits `psk` leaves the existing key untouched.
 
 ## Example Usage
 
@@ -32,14 +35,42 @@ resource "omada_wireless_network" "iot" {
 
 ### Optional
 
+- `access_enable` (Boolean) Access control.
 - `band` (Number) Radio band bitmask: 1=2.4GHz, 2=5GHz, 4=6GHz (7=all).
 - `broadcast` (Boolean) Whether the SSID is broadcast (visible).
+- `dhcp_option82_enable` (Boolean) DHCP option 82 insertion.
+- `enable_11r` (Boolean) 802.11r fast roaming.
 - `guest_net` (Boolean) Whether this is a guest network.
-- `psk` (String, Sensitive) Pre-shared key (WiFi password). Write-only from state's perspective; not refreshed from the controller.
+- `hide_pwd` (Boolean) Hide the password in the UI.
+- `mac_filter_enable` (Boolean) MAC filtering.
+- `manage_rate_2g` (Boolean) Management rate control on 2.4GHz.
+- `manage_rate_5g` (Boolean) Management rate control on 5GHz.
+- `mlo_enable` (Boolean) Multi-Link Operation (WiFi 7).
+- `multicast_arp_cast` (Boolean) ARP broadcast conversion.
+- `multicast_channel_util` (Number) Channel utilisation threshold.
+- `multicast_enable` (Boolean) Multicast/broadcast forwarding.
+- `multicast_filter` (Boolean) Multicast filtering.
+- `multicast_ipv6_cast` (Boolean) IPv6 multicast conversion.
+- `pmf_mode` (Number) Protected Management Frames mode.
+- `portal_enable` (Boolean) Captive portal on this SSID.
+- `prohibit_wifi_share` (Boolean) Prohibit WiFi sharing.
+- `psk` (String, Sensitive) Pre-shared key (WiFi password). **Write-only** — never refreshed from the controller.
+- `psk_encryption` (Number) PSK encryption code.
+- `psk_gik_rekey` (Boolean) GIK rekeying.
+- `psk_version` (Number) WPA version code for the PSK.
+- `rate_ctrl_2g` (Boolean) Rate control on 2.4GHz.
+- `rate_ctrl_5g` (Boolean) Rate control on 5GHz.
+- `rate_ctrl_6g` (Boolean) Rate control on 6GHz.
+- `rate_limit_down_enable` (Boolean) Per-client download rate limit.
+- `rate_limit_up_enable` (Boolean) Per-client upload rate limit.
 - `security` (Number) Security mode: 0=open, 3=WPA2/WPA3-PSK.
 - `site` (String) Site name. Defaults to the primary site. Changing forces replacement.
+- `ssid_rate_limit_down_enable` (Boolean) SSID-wide download rate limit.
+- `ssid_rate_limit_up_enable` (Boolean) SSID-wide upload rate limit.
 - `vlan_enable` (Boolean) Whether the SSID is tagged to a VLAN.
 - `vlan_id` (Number) VLAN ID when vlan_enable is true.
+- `wan_access` (Boolean) Allow WAN access from this SSID.
+- `wlan_schedule_enable` (Boolean) SSID schedule.
 
 ### Read-Only
 
