@@ -305,8 +305,23 @@ func (r *firewallACLResource) Read(ctx context.Context, req resource.ReadRequest
 			return
 		}
 	}
-	a, err := r.data.client.GetACL(ctx, siteID, r.aclType(state), state.ID.ValueString())
-	if err != nil {
+	// On import only the id is known, so the ACL type isn't in state yet. Search
+	// every type for the id rather than assuming `gateway`; apply() then records
+	// the type it was actually found under.
+	var a *omada.ACL
+	var err error
+	if state.Type.IsNull() || state.Type.IsUnknown() || state.Type.ValueString() == "" {
+		for _, t := range []int{omada.ACLTypeGateway, omada.ACLTypeSwitch, omada.ACLTypeEAP} {
+			if found, ferr := r.data.client.GetACL(ctx, siteID, t, state.ID.ValueString()); ferr == nil {
+				a, err = found, nil
+				break
+			}
+			err = fmt.Errorf("acl %q not found in any type", state.ID.ValueString())
+		}
+	} else {
+		a, err = r.data.client.GetACL(ctx, siteID, r.aclType(state), state.ID.ValueString())
+	}
+	if err != nil || a == nil {
 		resp.State.RemoveResource(ctx)
 		return
 	}

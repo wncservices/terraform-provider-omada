@@ -334,9 +334,13 @@ func newMockController(t *testing.T) *httptest.Server {
 			in["id"] = id
 			acls[id] = in
 			writeEnvelope(w, 0, "", nil)
-		default: // GET (?type=N ignored by the mock — single type in tests)
+		default: // GET — filter by ?type=N like the real controller
+			want := r.URL.Query().Get("type")
 			data := make([]map[string]any, 0, len(acls))
 			for _, n := range acls {
+				if want != "" && fmt.Sprintf("%v", n["type"]) != want {
+					continue
+				}
 				data = append(data, n)
 			}
 			writeEnvelope(w, 0, "", map[string]any{"totalRows": len(data), "data": data})

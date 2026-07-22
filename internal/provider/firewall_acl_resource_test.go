@@ -9,6 +9,39 @@ import (
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
 )
 
+// TestAccFirewallACLResource_NonGatewayImport covers importing an ACL that is
+// NOT type=gateway. On import only the id is known, so Read must search every
+// ACL type rather than assuming gateway (regression test: an EAP ACL was
+// previously unimportable).
+func TestAccFirewallACLResource_NonGatewayImport(t *testing.T) {
+	srv := newMockController(t)
+
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: testProviderConfig(srv.URL) + `
+resource "omada_firewall_acl" "eap" {
+  name            = "Deny ipv6"
+  type            = "eap"
+  policy          = "deny"
+  source_ids      = ["net-a"]
+  destination_ids = ["net-b"]
+}`,
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("omada_firewall_acl.eap", "type", "eap"),
+					resource.TestCheckResourceAttr("omada_firewall_acl.eap", "policy", "deny"),
+				),
+			},
+			{ // import by bare id — type must be discovered, not assumed
+				ResourceName:      "omada_firewall_acl.eap",
+				ImportState:       true,
+				ImportStateVerify: true,
+			},
+		},
+	})
+}
+
 // TestAccFirewallACLResource drives create → import → update of
 // omada_firewall_acl against the in-test mock. Requires TF_ACC=1.
 func TestAccFirewallACLResource(t *testing.T) {
