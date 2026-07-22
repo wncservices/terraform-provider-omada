@@ -13,19 +13,24 @@ config coverage, including gateway/router settings that other providers omit.
 
 ## Resources & data sources
 
-All CRUD contracts below were verified against a live v6.2 controller.
-
-| Resource | Status |
+| Resource | CRUD contract |
 |---|---|
-| `omada_network` | import / read / update / delete ✅ · **create: see limitation below** |
-| `omada_lan_dns` | full CRUD ✅ |
-| `omada_port_forward` | full CRUD ✅ |
-| `omada_ip_group` | full CRUD ✅ |
-| `omada_firewall_acl` | full CRUD ✅ |
+| `omada_network` | import / read / update / delete verified live ✅ · **create: see limitation** |
+| `omada_lan_dns` | full CRUD verified live ✅ |
+| `omada_port_forward` | full CRUD verified live ✅ |
+| `omada_ip_group` | full CRUD verified live ✅ |
+| `omada_firewall_acl` | full CRUD verified live ✅ |
+| `omada_wlan_group` | full CRUD verified live ✅ |
+| `omada_mdns_reflector` | full CRUD verified live ✅ |
+| `omada_port_profile` | full CRUD; managed field subset (rest preserved via read-modify-write) |
+| `omada_wireless_network` | SSID; managed field subset; `psk` is write-only |
+| `omada_vpn` | manages `name`/`enable` only; **write verbs inferred, not live-validated** |
+| `omada_site_settings` | singleton; manages the device-LED toggle (subset) |
 | data sources `omada_sites`, `omada_networks` | ✅ |
 
-Planned next: `omada_wireless_network`, `omada_wlan_group`, `omada_port_profile`,
-`omada_site_settings`, `omada_mdns_reflector`, `omada_vpn`.
+Every resource has mock-backed acceptance tests (create → import → update) that run
+in CI. Resources marked "verified live" had their exact endpoint + verbs confirmed
+against a real v6.2 controller with throwaway objects (created and deleted).
 
 ## Known limitations
 
@@ -39,6 +44,12 @@ Planned next: `omada_wireless_network`, `omada_wlan_group`, `omada_port_profile`
   Settings → Platform Integration → Open API*).
 - Firewall ACL `customAclPorts` / `customAclDevices` are sent empty (not yet
   modelled).
+- `omada_vpn` manages only `name`/`enable` and its write verbs are **inferred**
+  (the read shape is live-verified, but create/update/delete were not exercised on
+  hardware). Prefer importing an existing VPN and toggling `enable`.
+- `omada_port_profile`, `omada_wireless_network` and `omada_site_settings` manage a
+  practical subset of fields; unmanaged fields are preserved on update
+  (read-modify-write).
 
 ## Usage
 

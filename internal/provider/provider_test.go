@@ -362,6 +362,270 @@ func newMockController(t *testing.T) *httptest.Server {
 		}
 	})
 
+	// Stateful WLAN-group store (POST create, GET list, PATCH /{id}, DELETE).
+	wlans := map[string]map[string]any{}
+	wlanNext := 1
+	const wlanBase = "/abc123/api/v2/sites/site-1/setting/wlans"
+	mux.HandleFunc(wlanBase, func(w http.ResponseWriter, r *http.Request) {
+		if !requireToken(w, r) {
+			return
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		switch r.Method {
+		case http.MethodPost:
+			var in map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&in)
+			id := fmt.Sprintf("wlan-%d", wlanNext)
+			wlanNext++
+			in["id"] = id
+			in["primary"] = false
+			wlans[id] = in
+			writeEnvelope(w, 0, "", nil)
+		default:
+			data := make([]map[string]any, 0, len(wlans))
+			for _, n := range wlans {
+				data = append(data, n)
+			}
+			writeEnvelope(w, 0, "", map[string]any{"data": data})
+		}
+	})
+	mux.HandleFunc(wlanBase+"/", func(w http.ResponseWriter, r *http.Request) {
+		if !requireToken(w, r) {
+			return
+		}
+		id := strings.TrimPrefix(r.URL.Path, wlanBase+"/")
+		if strings.Contains(id, "/") { // e.g. .../wlans/{id}/ssids — not a group item
+			http.NotFound(w, r)
+			return
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		switch r.Method {
+		case http.MethodDelete:
+			delete(wlans, id)
+			writeEnvelope(w, 0, "", nil)
+		default: // PATCH
+			var in map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&in)
+			cur := wlans[id]
+			if cur == nil {
+				cur = map[string]any{}
+			}
+			for k, v := range in {
+				cur[k] = v
+			}
+			cur["id"] = id
+			wlans[id] = cur
+			writeEnvelope(w, 0, "", cur)
+		}
+	})
+
+	// Stateful mDNS store (POST create, GET list, PUT /{id}, DELETE).
+	mdns := map[string]map[string]any{}
+	mdnsNext := 1
+	const mdnsBase = "/abc123/api/v2/sites/site-1/setting/service/mdns"
+	mux.HandleFunc(mdnsBase, func(w http.ResponseWriter, r *http.Request) {
+		if !requireToken(w, r) {
+			return
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		switch r.Method {
+		case http.MethodPost:
+			var in map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&in)
+			id := fmt.Sprintf("mdns-%d", mdnsNext)
+			mdnsNext++
+			in["id"] = id
+			mdns[id] = in
+			writeEnvelope(w, 0, "", nil)
+		default:
+			data := make([]map[string]any, 0, len(mdns))
+			for _, n := range mdns {
+				data = append(data, n)
+			}
+			writeEnvelope(w, 0, "", map[string]any{"totalRows": len(data), "data": data})
+		}
+	})
+	mux.HandleFunc(mdnsBase+"/", func(w http.ResponseWriter, r *http.Request) {
+		if !requireToken(w, r) {
+			return
+		}
+		id := strings.TrimPrefix(r.URL.Path, mdnsBase+"/")
+		mu.Lock()
+		defer mu.Unlock()
+		switch r.Method {
+		case http.MethodDelete:
+			delete(mdns, id)
+			writeEnvelope(w, 0, "", nil)
+		default: // PUT
+			var in map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&in)
+			in["id"] = id
+			mdns[id] = in
+			writeEnvelope(w, 0, "", in)
+		}
+	})
+
+	// Stateful port-profile store (POST create, GET list, PATCH /{id}, DELETE).
+	profs := map[string]map[string]any{}
+	profNext := 1
+	const profBase = "/abc123/api/v2/sites/site-1/setting/lan/profiles"
+	mux.HandleFunc(profBase, func(w http.ResponseWriter, r *http.Request) {
+		if !requireToken(w, r) {
+			return
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		switch r.Method {
+		case http.MethodPost:
+			var in map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&in)
+			id := fmt.Sprintf("prof-%d", profNext)
+			profNext++
+			in["id"] = id
+			profs[id] = in
+			writeEnvelope(w, 0, "", nil)
+		default:
+			data := make([]map[string]any, 0, len(profs))
+			for _, n := range profs {
+				data = append(data, n)
+			}
+			writeEnvelope(w, 0, "", map[string]any{"data": data})
+		}
+	})
+	mux.HandleFunc(profBase+"/", func(w http.ResponseWriter, r *http.Request) {
+		if !requireToken(w, r) {
+			return
+		}
+		id := strings.TrimPrefix(r.URL.Path, profBase+"/")
+		mu.Lock()
+		defer mu.Unlock()
+		switch r.Method {
+		case http.MethodDelete:
+			delete(profs, id)
+			writeEnvelope(w, 0, "", nil)
+		default: // PATCH
+			var in map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&in)
+			in["id"] = id
+			profs[id] = in
+			writeEnvelope(w, 0, "", in)
+		}
+	})
+
+	// Stateful SSID store (nested under /wlans/{gid}/ssids — Go 1.22 wildcards).
+	ssids := map[string]map[string]any{}
+	ssidNext := 1
+	mux.HandleFunc("/abc123/api/v2/sites/site-1/setting/wlans/{gid}/ssids", func(w http.ResponseWriter, r *http.Request) {
+		if !requireToken(w, r) {
+			return
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		switch r.Method {
+		case http.MethodPost:
+			var in map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&in)
+			id := fmt.Sprintf("ssid-%d", ssidNext)
+			ssidNext++
+			in["id"] = id
+			ssids[id] = in
+			writeEnvelope(w, 0, "", nil)
+		default:
+			data := make([]map[string]any, 0, len(ssids))
+			for _, n := range ssids {
+				data = append(data, n)
+			}
+			writeEnvelope(w, 0, "", map[string]any{"data": data})
+		}
+	})
+	mux.HandleFunc("/abc123/api/v2/sites/site-1/setting/wlans/{gid}/ssids/{sid}", func(w http.ResponseWriter, r *http.Request) {
+		if !requireToken(w, r) {
+			return
+		}
+		id := r.PathValue("sid")
+		mu.Lock()
+		defer mu.Unlock()
+		switch r.Method {
+		case http.MethodDelete:
+			delete(ssids, id)
+			writeEnvelope(w, 0, "", nil)
+		default: // PATCH
+			var in map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&in)
+			in["id"] = id
+			ssids[id] = in
+			writeEnvelope(w, 0, "", in)
+		}
+	})
+
+	// Stateful VPN store (POST create, GET list, PUT /{id}, DELETE).
+	vpns := map[string]map[string]any{}
+	vpnNext := 1
+	const vpnBase = "/abc123/api/v2/sites/site-1/setting/vpns"
+	mux.HandleFunc(vpnBase, func(w http.ResponseWriter, r *http.Request) {
+		if !requireToken(w, r) {
+			return
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		switch r.Method {
+		case http.MethodPost:
+			var in map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&in)
+			id := fmt.Sprintf("vpn-%d", vpnNext)
+			vpnNext++
+			in["id"] = id
+			vpns[id] = in
+			writeEnvelope(w, 0, "", nil)
+		default:
+			data := make([]map[string]any, 0, len(vpns))
+			for _, n := range vpns {
+				data = append(data, n)
+			}
+			writeEnvelope(w, 0, "", map[string]any{"data": data})
+		}
+	})
+	mux.HandleFunc(vpnBase+"/", func(w http.ResponseWriter, r *http.Request) {
+		if !requireToken(w, r) {
+			return
+		}
+		id := strings.TrimPrefix(r.URL.Path, vpnBase+"/")
+		mu.Lock()
+		defer mu.Unlock()
+		switch r.Method {
+		case http.MethodDelete:
+			delete(vpns, id)
+			writeEnvelope(w, 0, "", nil)
+		default: // PUT
+			var in map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&in)
+			in["id"] = id
+			vpns[id] = in
+			writeEnvelope(w, 0, "", in)
+		}
+	})
+
+	// Site-settings singleton (GET /setting object, PATCH merges).
+	siteSettings := map[string]any{"led": map[string]any{"enable": true}}
+	mux.HandleFunc("/abc123/api/v2/sites/site-1/setting", func(w http.ResponseWriter, r *http.Request) {
+		if !requireToken(w, r) {
+			return
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		if r.Method == http.MethodPatch {
+			var in map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&in)
+			for k, v := range in {
+				siteSettings[k] = v
+			}
+		}
+		writeEnvelope(w, 0, "", siteSettings)
+	})
+
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 	return srv

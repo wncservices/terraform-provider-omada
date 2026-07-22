@@ -34,6 +34,12 @@ func stringSlice(ctx context.Context, l types.List) ([]string, diag.Diagnostics)
 	return out, d
 }
 
+// diagSink adapts a *diag.Diagnostics so shared helpers can append errors
+// without depending on a specific request/response type.
+type diagSink struct{ d *diag.Diagnostics }
+
+func (s *diagSink) AddError(summary, detail string) { s.d.AddError(summary, detail) }
+
 // nilToEmpty returns an empty slice for nil, so JSON marshals [] not null.
 func nilToEmpty(s []string) []string {
 	if s == nil {
