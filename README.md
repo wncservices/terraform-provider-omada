@@ -8,17 +8,48 @@ the Omada UI uses. TP-Link publishes no documentation for it; endpoints and payl
 shapes are derived from the UI. This is deliberate: it's the only surface with full
 config coverage, including gateway/router settings that other providers omit.
 
-> **Status: early (Phase 1).** Provider config, authenticated client, and the
-> `omada_sites` / `omada_networks` data sources. Resources land in later phases.
+> **Status: in progress.** Five resources with verified CRUD (see the table
+> below) plus two data sources. More resources are being added.
 
-## Roadmap
+## Resources & data sources
 
-| Phase | Scope |
+| Resource | CRUD contract |
 |---|---|
-| **1 — pipeline** ✅ scaffolded | provider config, auth client, `omada_sites` + `omada_networks` data sources, CI + signed release |
-| **2 — parity** | `omada_network`, `omada_wireless_network`, `omada_wlan_group`, `omada_ip_group`, `omada_firewall_acl`, `omada_port_profile`, `omada_device_switch`, `omada_device_ap`, `omada_site_settings` |
-| **3 — gateway (the point)** | `omada_port_forward`, `omada_static_route`, `omada_wan`, `omada_vpn` |
-| **4 — v1.0.0** | switch the homelab `lab/omada/` config to `wncservices/omada` |
+| `omada_network` | import / read / update / delete verified live ✅ · **create: see limitation** |
+| `omada_lan_dns` | full CRUD verified live ✅ |
+| `omada_port_forward` | full CRUD verified live ✅ |
+| `omada_ip_group` | full CRUD verified live ✅ |
+| `omada_firewall_acl` | full CRUD verified live ✅ |
+| `omada_wlan_group` | full CRUD verified live ✅ |
+| `omada_mdns_reflector` | full CRUD verified live ✅ |
+| `omada_port_profile` | full CRUD; managed field subset (rest preserved via read-modify-write) |
+| `omada_wireless_network` | SSID; managed field subset; `psk` is write-only |
+| `omada_vpn` | manages `name`/`enable` only; **write verbs inferred, not live-validated** |
+| `omada_site_settings` | singleton; manages the device-LED toggle (subset) |
+| data sources `omada_sites`, `omada_networks` | ✅ |
+
+Every resource has mock-backed acceptance tests (create → import → update) that run
+in CI. Resources marked "verified live" had their exact endpoint + verbs confirmed
+against a real v6.2 controller with throwaway objects (created and deleted).
+
+## Known limitations
+
+- **Creating a brand-new network is not yet supported.** The controller's web UI
+  creates networks through the official Omada **OpenAPI**
+  (`/openapi/v1/.../networks/confirm`), which needs client-credentials auth (a
+  separate token flow) — the `/api/v2` endpoint this provider uses rejects the
+  create (it demands write-only fields like `proto`). **Importing, reading,
+  updating and deleting** existing networks all work. Full create support needs
+  the OpenAPI auth flow added (register an Open API app under *Controller →
+  Settings → Platform Integration → Open API*).
+- Firewall ACL `customAclPorts` / `customAclDevices` are sent empty (not yet
+  modelled).
+- `omada_vpn` manages only `name`/`enable` and its write verbs are **inferred**
+  (the read shape is live-verified, but create/update/delete were not exercised on
+  hardware). Prefer importing an existing VPN and toggling `enable`.
+- `omada_port_profile`, `omada_wireless_network` and `omada_site_settings` manage a
+  practical subset of fields; unmanaged fields are preserved on update
+  (read-modify-write).
 
 ## Usage
 
@@ -34,7 +65,7 @@ provider "omada" {
   username = var.omada_username     # or OMADA_USERNAME
   password = var.omada_password     # or OMADA_PASSWORD
   # skip_tls_verify defaults to true (self-signed controller cert)
-  # site           defaults to "Default"
+  # site           defaults to the controller's primary site
 }
 
 data "omada_sites" "all" {}

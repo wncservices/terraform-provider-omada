@@ -107,6 +107,33 @@ func NewClient(ctx context.Context, rawURL, username, password string, skipTLSVe
 	return c, nil
 }
 
+// RawList fetches a list endpoint and returns each item as a raw map. Used by
+// resources that manage a subset of a complex object's fields and must preserve
+// the rest (read-modify-write on update).
+func (c *Client) RawList(ctx context.Context, path string) ([]map[string]any, error) {
+	var out struct {
+		Data []map[string]any `json:"data"`
+	}
+	if err := c.Do(ctx, "GET", path, nil, &out); err != nil {
+		return nil, err
+	}
+	return out.Data, nil
+}
+
+// RawByID returns the raw map for a single item (by its id field) from a list.
+func (c *Client) RawByID(ctx context.Context, path, idKey, id string) (map[string]any, error) {
+	items, err := c.RawList(ctx, path)
+	if err != nil {
+		return nil, err
+	}
+	for _, m := range items {
+		if s, _ := m[idKey].(string); s == id {
+			return m, nil
+		}
+	}
+	return nil, fmt.Errorf("item %q not found at %s", id, path)
+}
+
 // Do performs an authenticated request against /{omadacId}/api/v2 + path,
 // unmarshalling result into out. It transparently re-logs-in once if the
 // session has expired.

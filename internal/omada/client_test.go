@@ -58,7 +58,8 @@ func newTestController(t *testing.T) *httptest.Server {
 			"currentSize": 100,
 			"data": []map[string]any{{
 				"id": "net-1", "name": "IoT", "purpose": "interface",
-				"vlan": 30, "gatewaySubnet": "192.168.30.1/24", "dhcpGuardEnable": true,
+				"vlan": 30, "gatewaySubnet": "192.168.30.1/24",
+				"dhcpSettings": map[string]any{"enable": true, "ipaddrStart": "192.168.30.2", "ipaddrEnd": "192.168.30.254", "leasetime": 120},
 			}},
 		})
 	})
@@ -91,12 +92,12 @@ func TestClientLoginAndListSites(t *testing.T) {
 		t.Fatalf("unexpected sites: %+v", sites)
 	}
 
-	id, err := c.SiteIDByName(context.Background(), "Default")
+	id, err := c.ResolveSiteID(context.Background(), "Default")
 	if err != nil {
-		t.Fatalf("SiteIDByName: %v", err)
+		t.Fatalf("ResolveSiteID: %v", err)
 	}
 	if id != "site-1" {
-		t.Fatalf("SiteIDByName = %q, want site-1", id)
+		t.Fatalf("ResolveSiteID = %q, want site-1", id)
 	}
 }
 
@@ -118,7 +119,7 @@ func TestClientListNetworks(t *testing.T) {
 	}
 	n := nets[0]
 	if n.ID != "net-1" || n.Name != "IoT" || n.VLANID != 30 ||
-		n.GatewaySubnet != "192.168.30.1/24" || !n.DHCPEnabled {
+		n.GatewaySubnet != "192.168.30.1/24" || !n.DHCPEnabled() {
 		t.Fatalf("unexpected network: %+v", n)
 	}
 }

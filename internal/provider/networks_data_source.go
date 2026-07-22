@@ -117,7 +117,7 @@ func (d *networksDataSource) Read(ctx context.Context, req datasource.ReadReques
 			Purpose:       types.StringValue(n.Purpose),
 			VLANID:        types.Int64Value(int64(n.VLANID)),
 			GatewaySubnet: types.StringValue(n.GatewaySubnet),
-			DHCPEnabled:   types.BoolValue(n.DHCPEnabled),
+			DHCPEnabled:   types.BoolValue(n.DHCPEnabled()),
 		})
 	}
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
@@ -134,7 +134,7 @@ func (d *networksDataSource) resolveSiteID(ctx context.Context, config networksD
 	if !config.SiteName.IsNull() && config.SiteName.ValueString() != "" {
 		name = config.SiteName.ValueString()
 	}
-	id, err := d.data.client.SiteIDByName(ctx, name)
+	id, err := d.data.client.ResolveSiteID(ctx, name)
 	if err != nil {
 		diags.AddError("Unable to resolve site", err.Error())
 		return "", diags
