@@ -130,6 +130,7 @@ func (p *OmadaProvider) DataSources(_ context.Context) []func() datasource.DataS
 	return []func() datasource.DataSource{
 		NewSitesDataSource,
 		NewNetworksDataSource,
+		NewWANDataSource,
 	}
 }
 
@@ -145,6 +146,7 @@ func (p *OmadaProvider) Resources(_ context.Context) []func() resource.Resource 
 		NewPortProfileResource,
 		NewWirelessNetworkResource,
 		NewVPNResource,
+		NewStaticRouteResource,
 		NewSiteSettingsResource,
 	}
 }

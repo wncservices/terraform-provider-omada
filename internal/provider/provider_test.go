@@ -505,6 +505,12 @@ func newMockController(t *testing.T) *httptest.Server {
 			id := fmt.Sprintf("prof-%d", profNext)
 			profNext++
 			in["id"] = id
+			// Simulate controller-owned keys the provider must not clobber.
+			in["prohibitModify"] = false
+			in["flag"] = 2
+			if stp, ok := in["spanningTreeSetting"].(map[string]any); ok {
+				stp["instances"] = []any{}
+			}
 			profs[id] = in
 			writeEnvelope(w, 0, "", nil)
 		default:
@@ -628,6 +634,77 @@ func newMockController(t *testing.T) *httptest.Server {
 		}
 	})
 
+	// Stateful static-route store (POST create, GET list, PUT /{id}, DELETE).
+	routes := map[string]map[string]any{}
+	routeNext := 1
+	const routeBase = "/abc123/api/v2/sites/site-1/setting/transmission/staticRoutings"
+	mux.HandleFunc(routeBase, func(w http.ResponseWriter, r *http.Request) {
+		if !requireToken(w, r) {
+			return
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		switch r.Method {
+		case http.MethodPost:
+			var in map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&in)
+			id := fmt.Sprintf("route-%d", routeNext)
+			routeNext++
+			in["id"] = id
+			routes[id] = in
+			writeEnvelope(w, 0, "", nil)
+		default:
+			data := make([]map[string]any, 0, len(routes))
+			for _, n := range routes {
+				data = append(data, n)
+			}
+			writeEnvelope(w, 0, "", map[string]any{"totalRows": len(data), "data": data})
+		}
+	})
+	mux.HandleFunc(routeBase+"/", func(w http.ResponseWriter, r *http.Request) {
+		if !requireToken(w, r) {
+			return
+		}
+		id := strings.TrimPrefix(r.URL.Path, routeBase+"/")
+		mu.Lock()
+		defer mu.Unlock()
+		switch r.Method {
+		case http.MethodDelete:
+			delete(routes, id)
+			writeEnvelope(w, 0, "", nil)
+		case http.MethodPut:
+			var in map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&in)
+			in["id"] = id
+			routes[id] = in
+			writeEnvelope(w, 0, "", in)
+		default:
+			// The real controller rejects anything but PUT here; mirror that so a
+			// regression back to PATCH fails the test instead of silently passing.
+			writeEnvelope(w, -1600, "Unsupported request path.", nil)
+		}
+	})
+
+	// WAN settings (read-only): the real payload mixes config with a large set of
+	// read-only support* capability flags, which the data source must ignore.
+	mux.HandleFunc("/abc123/api/v2/sites/site-1/setting/wan/networks", func(w http.ResponseWriter, r *http.Request) {
+		if !requireToken(w, r) {
+			return
+		}
+		writeEnvelope(w, 0, "", map[string]any{
+			"supportPppoe": true, "supportIpv6": true, "portNum": 2,
+			"wanPortSettings": []map[string]any{{
+				"portUuid": "wan-1", "portName": "WAN/LAN1",
+				"wanPortIpv4Setting": map[string]any{
+					"proto": "dhcp", "protoType": 0, "vlanId": 0, "qosTagEnable": false,
+					"ipv4Dhcp": map[string]any{"unicast": false, "mtu": 1500},
+				},
+				"wanPortIpv6Setting": map[string]any{"enable": 0},
+				"wanPortMacSetting":  map[string]any{"method": "recover", "mac": "AA-BB-CC-DD-EE-FF"},
+			}},
+		})
+	})
+
 	// Site-settings singleton (GET /setting object, PATCH merges top-level groups).
 	// deviceAccount is included deliberately: the provider must never send it,
 	// so it should survive every update untouched.
@@ -675,9 +752,38 @@ func newMockController(t *testing.T) *httptest.Server {
 		writeEnvelope(w, 0, "", siteSettings)
 	})
 
+	// Unauthenticated debug endpoints so tests can assert on the RAW stored
+	// objects — specifically that keys the provider never models (STP
+	// `instances`, and the WiFi `pskSetting.securityKey`) survive updates.
+	mux.HandleFunc("/debug/ssids", func(w http.ResponseWriter, _ *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		_ = json.NewEncoder(w).Encode(ssids)
+	})
+	mux.HandleFunc("/debug/profiles", func(w http.ResponseWriter, _ *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		_ = json.NewEncoder(w).Encode(profs)
+	})
+
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 	return srv
+}
+
+// rawStore fetches one of the mock's debug endpoints (e.g. "ssids", "profiles").
+func rawStore(t *testing.T, base, kind string) map[string]map[string]any {
+	t.Helper()
+	resp, err := http.Get(base + "/debug/" + kind)
+	if err != nil {
+		t.Fatalf("debug fetch: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	out := map[string]map[string]any{}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		t.Fatalf("debug decode: %v", err)
+	}
+	return out
 }
 
 func writeEnvelope(w http.ResponseWriter, code int, msg string, result any) {

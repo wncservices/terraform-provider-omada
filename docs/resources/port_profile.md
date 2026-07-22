@@ -3,12 +3,15 @@
 page_title: "omada_port_profile Resource - omada"
 subcategory: ""
 description: |-
-  Manages a switch port profile on the Omada controller. A managed subset of fields is exposed; other fields on the profile are preserved on update.
+  Manages a switch port profile: VLAN tagging, PoE, 802.1X, LLDP-MED, loopback detection, spanning tree and more.
+  Unset attributes keep their current controller value; unmodelled keys (including the STP instances list) are preserved on update.
 ---
 
 # omada_port_profile (Resource)
 
-Manages a switch port profile on the Omada controller. A managed subset of fields is exposed; other fields on the profile are preserved on update.
+Manages a switch port profile: VLAN tagging, PoE, 802.1X, LLDP-MED, loopback detection, spanning tree and more.
+
+Unset attributes keep their current controller value; unmodelled keys (including the STP `instances` list) are preserved on update.
 
 ## Example Usage
 
@@ -31,12 +34,44 @@ resource "omada_port_profile" "trunk" {
 
 ### Optional
 
+- `band_width_ctrl_type` (Number) Bandwidth control type.
+- `dhcp_l2_relay_enable` (Boolean) DHCP L2 relay on this profile.
+- `dot1p_priority` (Number) 802.1p priority.
+- `dot1x` (Number) 802.1X mode.
+- `eee_enable` (Boolean) Energy Efficient Ethernet.
+- `fast_leave_enable` (Boolean) Fast leave.
+- `flow_control_enable` (Boolean) Flow control.
+- `igmp_fast_leave_enable` (Boolean) IGMP fast leave.
+- `lldp_med_enable` (Boolean) LLDP-MED.
+- `loopback_detect_enable` (Boolean) Loopback detection.
+- `loopback_detect_vlan_based` (Boolean) VLAN-based loopback detection.
+- `mld_fast_leave_enable` (Boolean) MLD fast leave.
 - `native_network_id` (String) Untagged/native network (VLAN) ID for the port.
+- `network_tags_setting` (Number) Network tagging mode.
 - `poe` (Number) PoE mode: 0=off, 1=on, 2=keep-device-setting.
+- `port_isolation_enable` (Boolean) Port isolation.
 - `site` (String) Site name. Defaults to the primary site. Changing forces replacement.
+- `spanning_tree_enable` (Boolean) Spanning tree on this profile.
+- `stp_bpdu_filter` (Boolean) STP BPDU filter.
+- `stp_bpdu_forward` (Boolean) STP BPDU forwarding.
+- `stp_bpdu_protect` (Boolean) STP BPDU protection.
+- `stp_edge_port` (Boolean) STP edge port.
+- `stp_ext_path_cost` (Number) STP external path cost.
+- `stp_int_path_cost` (Number) STP internal path cost.
+- `stp_loop_protect` (Boolean) STP loop protection.
+- `stp_mcheck` (Boolean) STP mCheck.
+- `stp_p2p_link` (Number) STP point-to-point link mode.
+- `stp_priority` (Number) STP port priority.
+- `stp_root_protect` (Boolean) STP root protection.
+- `stp_tc_guard` (Boolean) STP TC guard.
+- `support_es_enable` (Boolean) Energy saving support.
 - `tagged_network_ids` (List of String) Tagged (trunk) network IDs.
+- `trust_mode` (Number) QoS trust mode.
+- `type` (Number) Profile type code.
 - `untagged_network_ids` (List of String) Additional untagged network IDs.
-- `vlan_config_enable` (Boolean) Whether custom VLAN tagging is enabled on the profile.
+- `vlan_config_enable` (Boolean) Custom VLAN tagging on the profile.
+- `voice_dscp_enable` (Boolean) Voice DSCP marking.
+- `voice_network_enable` (Boolean) Voice network.
 
 ### Read-Only
 
