@@ -66,7 +66,7 @@ func (p *OmadaProvider) Schema(_ context.Context, _ provider.SchemaRequest, resp
 				Optional:            true,
 			},
 			"site": schema.StringAttribute{
-				MarkdownDescription: "Default site name used by site-scoped resources when they don't set one explicitly. Defaults to `Default`. May also be set via `OMADA_SITE`.",
+				MarkdownDescription: "Default site name used by site-scoped resources when they don't set one explicitly. Defaults to the controller's **primary** site (real sites are often named e.g. `Home`, not `Default`). May also be set via `OMADA_SITE`.",
 				Optional:            true,
 			},
 		},
