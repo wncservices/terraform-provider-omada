@@ -133,6 +133,7 @@ func (p *OmadaProvider) DataSources(_ context.Context) []func() datasource.DataS
 		NewWANDataSource,
 		NewPortForwardsDataSource,
 		NewFirewallACLsDataSource,
+		NewDevicesDataSource,
 	}
 }
 
