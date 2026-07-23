@@ -332,7 +332,12 @@ func newMockController(t *testing.T) *httptest.Server {
 	})
 
 	// Stateful firewall-ACL store (POST create, GET ?type=N, PUT /{id}, DELETE).
-	acls := map[string]map[string]any{}
+	// Seeded with one gateway rule so the omada_firewall_acls data source has
+	// something to list; the resource tests only assert on rules they create.
+	acls := map[string]map[string]any{
+		"acl-seed": {"id": "acl-seed", "type": 0 /* gateway */, "name": "seed",
+			"status": true, "policy": 1},
+	}
 	aclNext := 1
 	const aclBase = "/abc123/api/v2/sites/site-1/setting/firewall/acls"
 	mux.HandleFunc(aclBase, func(w http.ResponseWriter, r *http.Request) {
