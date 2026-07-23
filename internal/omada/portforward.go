@@ -46,13 +46,7 @@ func portForwardPath(siteID string) string {
 
 // ListPortForwards returns all port-forwarding rules for a site.
 func (c *Client) ListPortForwards(ctx context.Context, siteID string) ([]PortForward, error) {
-	var out struct {
-		Data []PortForward `json:"data"`
-	}
-	if err := c.Do(ctx, "GET", portForwardPath(siteID)+"?currentPage=1&currentPageSize=1000", nil, &out); err != nil {
-		return nil, fmt.Errorf("listing port forwards: %w", err)
-	}
-	return out.Data, nil
+	return listAll[PortForward](ctx, c, "port forwards", portForwardPath(siteID))
 }
 
 // GetPortForward returns a single rule by id.

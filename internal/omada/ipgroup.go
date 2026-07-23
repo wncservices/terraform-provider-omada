@@ -42,14 +42,12 @@ func groupsPath(siteID string) string {
 
 // ListIPGroups returns all IP-type groups for a site.
 func (c *Client) ListIPGroups(ctx context.Context, siteID string) ([]IPGroup, error) {
-	var out struct {
-		Data []IPGroup `json:"data"`
+	all, err := listAll[IPGroup](ctx, c, "ip groups", groupsPath(siteID))
+	if err != nil {
+		return nil, err
 	}
-	if err := c.Do(ctx, "GET", groupsPath(siteID), nil, &out); err != nil {
-		return nil, fmt.Errorf("listing ip groups: %w", err)
-	}
-	groups := make([]IPGroup, 0, len(out.Data))
-	for _, g := range out.Data {
+	groups := make([]IPGroup, 0, len(all))
+	for _, g := range all {
 		if g.Type == ipGroupType {
 			groups = append(groups, g)
 		}

@@ -41,13 +41,7 @@ func mdnsPath(siteID string) string {
 
 // ListMDNS returns all mDNS rules for a site.
 func (c *Client) ListMDNS(ctx context.Context, siteID string) ([]MDNSReflector, error) {
-	var out struct {
-		Data []MDNSReflector `json:"data"`
-	}
-	if err := c.Do(ctx, "GET", mdnsPath(siteID)+"?currentPage=1&currentPageSize=1000", nil, &out); err != nil {
-		return nil, fmt.Errorf("listing mdns: %w", err)
-	}
-	return out.Data, nil
+	return listAll[MDNSReflector](ctx, c, "mdns", mdnsPath(siteID))
 }
 
 // GetMDNS returns one mDNS rule by id.

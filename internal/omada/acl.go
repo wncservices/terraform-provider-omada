@@ -65,14 +65,8 @@ func aclsPath(siteID string) string {
 
 // ListACLs returns the ACL rules of a given type for a site.
 func (c *Client) ListACLs(ctx context.Context, siteID string, aclType int) ([]ACL, error) {
-	var out struct {
-		Data []ACL `json:"data"`
-	}
-	path := fmt.Sprintf("%s?type=%d&currentPage=1&currentPageSize=1000", aclsPath(siteID), aclType)
-	if err := c.Do(ctx, "GET", path, nil, &out); err != nil {
-		return nil, fmt.Errorf("listing acls: %w", err)
-	}
-	return out.Data, nil
+	base := fmt.Sprintf("%s?type=%d", aclsPath(siteID), aclType)
+	return listAll[ACL](ctx, c, "acls", base)
 }
 
 // GetACL returns a single ACL by id (within a type).
