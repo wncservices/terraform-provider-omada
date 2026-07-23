@@ -8,9 +8,14 @@ the Omada UI uses. TP-Link publishes no documentation for it; endpoints and payl
 shapes are derived from the UI. This is deliberate: it's the only surface with full
 config coverage, including gateway/router settings that other providers omit.
 
-> **Status: released.** `v0.1.0` is published to the Terraform Registry —
+> **Status: released.** `v0.1.2` is the current release on the Terraform Registry —
 > **12 resources** (table below) + 3 data sources, each with acceptance tests in
 > CI. Verified against a live Omada v6.2 controller.
+
+**Contributing?** See [`DESIGN.md`](DESIGN.md) for the architecture, the coverage
+matrix, and a prioritised list of what still needs building (with per-item
+implementation notes) — written so a contributor or agent can pick something up
+without reading the whole repo first.
 
 ## Resources & data sources
 
@@ -59,6 +64,13 @@ against a real v6.2 controller with throwaway objects (created and deleted).
   with a throwaway object: the only object is the live WAN, and a bad write drops
   the internet for the whole site. Read WAN state with the data source; change it in
   the Omada UI.
+- **Per-device config is not modelled** (individual switch-port overrides, AP radio
+  settings). The provider manages site-wide profiles, not device-level overrides.
+- **List calls fetch a single large page** (`pageSize=1000`), not a true pagination
+  loop — fine for a homelab, insufficient for a site with >1000 objects of one type.
+
+The full, prioritised roadmap — with implementation notes for each gap — is in
+[`DESIGN.md`](DESIGN.md#5-whats-missing--the-roadmap).
 
 ## Usage
 

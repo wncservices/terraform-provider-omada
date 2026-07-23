@@ -9,6 +9,10 @@ the Omada UI uses — which is the only surface with full config coverage, inclu
 the gateway settings other providers omit. Consumed by the homelab `lab/omada/`
 Terraform config; published to the public Terraform Registry as `wncservices/omada`.
 
+For the architecture, the coverage matrix, the "add a resource" recipe, and the
+prioritised list of what still needs building, read [`DESIGN.md`](DESIGN.md) — the
+single reference for contributors and agents.
+
 ## Technology Stack
 
 - **Language:** Go 1.26.5 (`terraform-plugin-framework`, not SDKv2)
@@ -63,10 +67,11 @@ make fmt       # gofmt -s -w
   into `internal/omada/`.
 - **One file per resource/data source** in `internal/provider/`, each with a
   matching `_test.go` acceptance test that runs against the mock controller.
-- **Every new endpoint gets a fixture + unit test.** Reverse-engineer payloads
-  from the UI (browser devtools), freeze a representative response under
-  `internal/omada/testdata/`, and assert against it — the API is undocumented, so
-  fixtures are our contract.
+- **Every new endpoint gets mock coverage + an acceptance test.** Reverse-engineer
+  payloads from the UI (browser devtools), add handlers to the stateful mock
+  controller in `internal/provider/provider_test.go` (`newMockController`), and
+  drive a create → import → update acceptance test against it. Testing is
+  mock-based, not fixture-file based — there is no `internal/omada/testdata/`.
 - **Docs are generated.** Edit `examples/` and schema `MarkdownDescription`s, then
   `make docs`; never hand-edit `docs/`. CI fails if `docs/` is stale.
 - Struct field mappings flagged "provisional" in `internal/omada/` must be
