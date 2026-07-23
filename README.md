@@ -9,7 +9,7 @@ shapes are derived from the UI. This is deliberate: it's the only surface with f
 config coverage, including gateway/router settings that other providers omit.
 
 > **Status: released.** `v0.1.2` is the current release on the Terraform Registry —
-> **12 resources** (table below) + 3 data sources, each with acceptance tests in
+> **12 resources** (table below) + 5 data sources, each with acceptance tests in
 > CI. Verified against a live Omada v6.2 controller.
 
 **Contributing?** See [`DESIGN.md`](DESIGN.md) for the architecture, the coverage
@@ -33,7 +33,8 @@ without reading the whole repo first.
 | `omada_vpn` | manages `name`/`enable` only; **write verbs inferred, not live-validated** |
 | `omada_static_route` | full CRUD verified live ✅ (update is `PUT` — `PATCH` is rejected) |
 | `omada_site_settings` | singleton, read/update verified live ✅; ~45 fields across LED, mesh, roaming, band steering, airtime fairness, LLDP, auto-upgrade, alerts, remote logging, speed test, RF beacon; `deviceAccount` never touched |
-| data sources `omada_sites`, `omada_networks`, `omada_wan` | ✅ (`omada_wan` is **read-only by design** — see limitations) |
+| data sources `omada_sites`, `omada_networks`, `omada_port_forwards`, `omada_firewall_acls` | ✅ (discovery — list objects + their IDs for import) |
+| data source `omada_wan` | ✅ **read-only by design** — see limitations |
 
 Every resource has mock-backed acceptance tests (create → import → update) that run
 in CI. Resources marked "verified live" had their exact endpoint + verbs confirmed

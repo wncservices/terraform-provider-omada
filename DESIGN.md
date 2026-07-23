@@ -125,6 +125,8 @@ preserved via read-modify-write.
 | `omada_sites` (data) | R | live | |
 | `omada_networks` (data) | R | live | |
 | `omada_wan` (data) | R | live | **read-only by design** — see §5.4 |
+| `omada_port_forwards` (data) | R | mock | discovery — list rules + IDs |
+| `omada_firewall_acls` (data) | R | mock | discovery — lists all ACL types |
 
 ---
 
@@ -241,8 +243,9 @@ at a time. Each capability is a small task; the umbrella is large.
   more the same table-driven way (`site_settings_resource.go`).
 - **Policy routes / UPnP:** not modelled at all (static routes are). Capture and add
   like any other transmission-setting resource.
-- **More data sources:** `omada_port_forwards`, `omada_firewall_acls`,
-  `omada_clients` would help users discover IDs for import.
+- **More data sources:** `omada_port_forwards` and `omada_firewall_acls` shipped
+  (discovery — list objects + IDs for import). `omada_clients` and a
+  device-discovery source (§5.5) are still open.
 
 ### 5.7 Client-level: pagination
 
