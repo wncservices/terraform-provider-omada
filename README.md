@@ -8,8 +8,8 @@ the Omada UI uses. TP-Link publishes no documentation for it; endpoints and payl
 shapes are derived from the UI. This is deliberate: it's the only surface with full
 config coverage, including gateway/router settings that other providers omit.
 
-> **Status: released.** `v0.1.2` is the current release on the Terraform Registry —
-> **12 resources** (table below) + 5 data sources, each with acceptance tests in
+> **Status: released.** `v0.2.0` is the current release on the Terraform Registry —
+> **12 resources** (table below) + 6 data sources, each with acceptance tests in
 > CI. Verified against a live Omada v6.2 controller.
 
 **Contributing?** See [`DESIGN.md`](DESIGN.md) for the architecture, the coverage
@@ -33,7 +33,7 @@ without reading the whole repo first.
 | `omada_vpn` | manages `name`/`enable` only; **write verbs inferred, not live-validated** |
 | `omada_static_route` | full CRUD verified live ✅ (update is `PUT` — `PATCH` is rejected) |
 | `omada_site_settings` | singleton, read/update verified live ✅; ~45 fields across LED, mesh, roaming, band steering, airtime fairness, LLDP, auto-upgrade, alerts, remote logging, speed test, RF beacon; `deviceAccount` never touched |
-| data sources `omada_sites`, `omada_networks`, `omada_port_forwards`, `omada_firewall_acls` | ✅ (discovery — list objects + their IDs for import) |
+| data sources `omada_sites`, `omada_networks`, `omada_port_forwards`, `omada_firewall_acls`, `omada_devices` | ✅ (discovery/inventory — list objects + their IDs for import) |
 | data source `omada_wan` | ✅ **read-only by design** — see limitations |
 
 Every resource has mock-backed acceptance tests (create → import → update) that run

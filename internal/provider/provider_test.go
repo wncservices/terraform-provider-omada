@@ -710,6 +710,24 @@ func newMockController(t *testing.T) *httptest.Server {
 		})
 	})
 
+	// Devices list — result is a bare JSON array (no pagination envelope), like
+	// the real controller. Seeded with one switch and one AP.
+	mux.HandleFunc("/abc123/api/v2/sites/site-1/devices", func(w http.ResponseWriter, r *http.Request) {
+		if !requireToken(w, r) {
+			return
+		}
+		writeEnvelope(w, 0, "", []map[string]any{
+			{"name": "SW-1", "type": "switch", "model": "ES205GP", "mac": "8C-86-DD-10-50-CA",
+				"sn": "225", "ip": "10.10.99.2", "status": 14, "statusCategory": 1,
+				"firmwareVersion": "1.0.6 Build 20260329", "version": "1.0.6",
+				"needUpgrade": false, "uptimeLong": 5656402, "clientNum": 0, "hwVersion": "1.0"},
+			{"name": "AP-1", "type": "ap", "model": "EAP610", "mac": "60-83-E7-4B-1B-40",
+				"sn": "226", "ip": "10.10.99.4", "status": 14, "statusCategory": 1,
+				"firmwareVersion": "1.2.3", "version": "1.2.3",
+				"needUpgrade": true, "uptimeLong": 1000, "clientNum": 7, "hwVersion": "1.0"},
+		})
+	})
+
 	// Site-settings singleton (GET /setting object, PATCH merges top-level groups).
 	// deviceAccount is included deliberately: the provider must never send it,
 	// so it should survive every update untouched.

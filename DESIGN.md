@@ -127,6 +127,7 @@ preserved via read-modify-write.
 | `omada_wan` (data) | R | live | **read-only by design** — see §5.4 |
 | `omada_port_forwards` (data) | R | mock | discovery — list rules + IDs |
 | `omada_firewall_acls` (data) | R | mock | discovery — lists all ACL types |
+| `omada_devices` (data) | R | live | inventory — gateways/switches/APs |
 
 ---
 
@@ -228,12 +229,13 @@ VLAN tag) rather than the whole document; keep the data source as-is.
 
 ### 5.5 Device-level resources — `omada_device_switch`, `omada_device_ap` 🟢 (per field)
 
-**Status:** not started. The provider manages site-wide *profiles* but not
-per-device overrides (individual switch port overrides, AP radio/power settings,
-per-device names). These were in the original Phase-2 plan and never built.
-**To implement:** start read-only (a `omada_devices` data source over
-`/api/v2/sites/{site}/devices`), then add per-device config resources one capability
-at a time. Each capability is a small task; the umbrella is large.
+**Status:** read-only inventory shipped — the `omada_devices` data source over
+`GET /api/v2/sites/{site}/devices` lists gateways/switches/APs (name, type, model,
+mac, ip, firmware, uptime, client count, upgrade flag). Per-device *config*
+(individual switch-port overrides, AP radio/power settings, per-device names) is
+still not started.
+**To implement:** add per-device config resources on top of the data source one
+capability at a time. Each capability is a small task; the umbrella is large.
 
 ### 5.6 Smaller gaps 🟢
 
