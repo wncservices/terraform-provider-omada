@@ -24,19 +24,9 @@ func vpnsPath(siteID string) string {
 	return fmt.Sprintf("/sites/%s/setting/vpns", siteID)
 }
 
-func vpnsListPath(siteID string) string {
-	return vpnsPath(siteID) + "?currentPage=1&currentPageSize=1000"
-}
-
 // ListVPNs returns all VPNs for a site.
 func (c *Client) ListVPNs(ctx context.Context, siteID string) ([]VPN, error) {
-	var out struct {
-		Data []VPN `json:"data"`
-	}
-	if err := c.Do(ctx, "GET", vpnsListPath(siteID), nil, &out); err != nil {
-		return nil, fmt.Errorf("listing vpns: %w", err)
-	}
-	return out.Data, nil
+	return listAll[VPN](ctx, c, "vpns", vpnsPath(siteID))
 }
 
 // GetVPN returns one VPN by id.
@@ -73,7 +63,7 @@ func (c *Client) CreateVPN(ctx context.Context, siteID string, fields map[string
 
 // UpdateVPN does a read-modify-write of the managed fields (PUT).
 func (c *Client) UpdateVPN(ctx context.Context, siteID, id string, fields map[string]any) (*VPN, error) {
-	cur, err := c.RawByID(ctx, vpnsListPath(siteID), "id", id)
+	cur, err := c.RawByID(ctx, vpnsPath(siteID), "id", id)
 	if err != nil {
 		return nil, err
 	}

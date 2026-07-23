@@ -30,19 +30,9 @@ func staticRoutesPath(siteID string) string {
 	return fmt.Sprintf("/sites/%s/setting/transmission/staticRoutings", siteID)
 }
 
-func staticRoutesListPath(siteID string) string {
-	return staticRoutesPath(siteID) + "?currentPage=1&currentPageSize=1000"
-}
-
 // ListStaticRoutes returns all static routes for a site.
 func (c *Client) ListStaticRoutes(ctx context.Context, siteID string) ([]StaticRoute, error) {
-	var out struct {
-		Data []StaticRoute `json:"data"`
-	}
-	if err := c.Do(ctx, "GET", staticRoutesListPath(siteID), nil, &out); err != nil {
-		return nil, fmt.Errorf("listing static routes: %w", err)
-	}
-	return out.Data, nil
+	return listAll[StaticRoute](ctx, c, "static routes", staticRoutesPath(siteID))
 }
 
 // GetStaticRoute returns one route by id.

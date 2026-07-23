@@ -107,17 +107,12 @@ func NewClient(ctx context.Context, rawURL, username, password string, skipTLSVe
 	return c, nil
 }
 
-// RawList fetches a list endpoint and returns each item as a raw map. Used by
-// resources that manage a subset of a complex object's fields and must preserve
-// the rest (read-modify-write on update).
+// RawList fetches a list endpoint and returns each item as a raw map, paging
+// across all results. Used by resources that manage a subset of a complex
+// object's fields and must preserve the rest (read-modify-write on update).
+// `path` is the bare endpoint (no pagination query — that is added per page).
 func (c *Client) RawList(ctx context.Context, path string) ([]map[string]any, error) {
-	var out struct {
-		Data []map[string]any `json:"data"`
-	}
-	if err := c.Do(ctx, "GET", path, nil, &out); err != nil {
-		return nil, err
-	}
-	return out.Data, nil
+	return listAll[map[string]any](ctx, c, "items", path)
 }
 
 // RawByID returns the raw map for a single item (by its id field) from a list.

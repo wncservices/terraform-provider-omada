@@ -5,7 +5,6 @@ package omada
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 )
 
@@ -77,10 +76,6 @@ func networksPath(siteID string) string {
 	return fmt.Sprintf("/sites/%s/setting/lan/networks", siteID)
 }
 
-func networksListPath(siteID string) string {
-	return networksPath(siteID) + "?currentPage=1&currentPageSize=1000"
-}
-
 // CreateNetwork creates a LAN network.
 //
 // NOTE: creating a brand-new "interface" network is not supported by this
@@ -129,7 +124,7 @@ func (c *Client) getNetworkByName(ctx context.Context, siteID, name string) (*Ne
 // managed fields, and PATCH the whole thing back so derived/unmodelled fields
 // (ipRangePool, totalIpNum, ...) survive.
 func (c *Client) UpdateNetwork(ctx context.Context, siteID, id string, fields map[string]any) (*Network, error) {
-	cur, err := c.RawByID(ctx, networksListPath(siteID), "id", id)
+	cur, err := c.RawByID(ctx, networksPath(siteID), "id", id)
 	if err != nil {
 		return nil, err
 	}
@@ -165,29 +160,5 @@ func (c *Client) DeleteNetwork(ctx context.Context, siteID, id string) error {
 
 // ListNetworks returns every LAN network for the given site, following pagination.
 func (c *Client) ListNetworks(ctx context.Context, siteID string) ([]Network, error) {
-	var all []Network
-	page := 1
-	const size = 100
-
-	for {
-		var pr PaginatedResult
-		path := fmt.Sprintf("%s?currentPage=%d&currentPageSize=%d", networksPath(siteID), page, size)
-		if err := c.Do(ctx, "GET", path, nil, &pr); err != nil {
-			return nil, fmt.Errorf("listing networks: %w", err)
-		}
-
-		var chunk []Network
-		if len(pr.Data) > 0 {
-			if err := json.Unmarshal(pr.Data, &chunk); err != nil {
-				return nil, fmt.Errorf("decoding networks page %d: %w", page, err)
-			}
-		}
-		all = append(all, chunk...)
-
-		if len(all) >= pr.TotalRows || len(chunk) == 0 {
-			break
-		}
-		page++
-	}
-	return all, nil
+	return listAll[Network](ctx, c, "networks", networksPath(siteID))
 }

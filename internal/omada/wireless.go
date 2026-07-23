@@ -81,19 +81,9 @@ func ssidsPath(siteID, groupID string) string {
 	return fmt.Sprintf("/sites/%s/setting/wlans/%s/ssids", siteID, groupID)
 }
 
-func ssidsListPath(siteID, groupID string) string {
-	return ssidsPath(siteID, groupID) + "?currentPage=1&currentPageSize=1000"
-}
-
 // ListSSIDs returns all SSIDs in a WLAN group.
 func (c *Client) ListSSIDs(ctx context.Context, siteID, groupID string) ([]WirelessNetwork, error) {
-	var out struct {
-		Data []WirelessNetwork `json:"data"`
-	}
-	if err := c.Do(ctx, "GET", ssidsListPath(siteID, groupID), nil, &out); err != nil {
-		return nil, fmt.Errorf("listing ssids: %w", err)
-	}
-	return out.Data, nil
+	return listAll[WirelessNetwork](ctx, c, "ssids", ssidsPath(siteID, groupID))
 }
 
 // GetSSID returns one SSID by id.
@@ -144,7 +134,7 @@ func (c *Client) CreateSSID(ctx context.Context, siteID, groupID string, fields 
 // unmodelled keys survive and — critically — the existing pskSetting.securityKey
 // is retained unless a new psk is supplied.
 func (c *Client) UpdateSSID(ctx context.Context, siteID, groupID, id string, fields map[string]any, psk string) (*WirelessNetwork, error) {
-	cur, err := c.RawByID(ctx, ssidsListPath(siteID, groupID), "id", id)
+	cur, err := c.RawByID(ctx, ssidsPath(siteID, groupID), "id", id)
 	if err != nil {
 		return nil, err
 	}

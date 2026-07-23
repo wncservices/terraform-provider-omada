@@ -27,20 +27,19 @@ func wlansPath(siteID string) string {
 
 // ListWLANGroups returns all WLAN groups for a site.
 func (c *Client) ListWLANGroups(ctx context.Context, siteID string) ([]WLANGroup, error) {
-	var out struct {
-		Data []WLANGroup `json:"data"`
+	groups, err := listAll[WLANGroup](ctx, c, "wlan groups", wlansPath(siteID))
+	if err != nil {
+		return nil, err
 	}
-	if err := c.Do(ctx, "GET", wlansPath(siteID), nil, &out); err != nil {
-		return nil, fmt.Errorf("listing wlan groups: %w", err)
-	}
-	if len(out.Data) == 0 {
-		// Some controllers return the list unwrapped.
+	if len(groups) == 0 {
+		// Some controllers return the list unwrapped (a bare JSON array with no
+		// pagination envelope), which listAll can't decode.
 		var bare []WLANGroup
 		if err := c.Do(ctx, "GET", wlansPath(siteID), nil, &bare); err == nil {
 			return bare, nil
 		}
 	}
-	return out.Data, nil
+	return groups, nil
 }
 
 // GetWLANGroup returns a WLAN group by id.

@@ -6,15 +6,18 @@ package omada
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"slices"
+	"strconv"
 	"testing"
 )
 
 // newTestController spins up an httptest server that mimics the Omada
 // info + login handshake and a sites list, so the client can be exercised
-// without a real controller. As real endpoints are reverse-engineered,
-// freeze their responses under testdata/ and extend this fixture.
+// without a real controller. As real endpoints are reverse-engineered, extend
+// this fixture (or the stateful mock in the provider package) with their shapes.
 func newTestController(t *testing.T) *httptest.Server {
 	t.Helper()
 
@@ -121,6 +124,66 @@ func TestClientListNetworks(t *testing.T) {
 	if n.ID != "net-1" || n.Name != "IoT" || n.VLANID != 30 ||
 		n.GatewaySubnet != "192.168.30.1/24" || !n.DHCPEnabled() {
 		t.Fatalf("unexpected network: %+v", n)
+	}
+}
+
+func TestPageURL(t *testing.T) {
+	cases := []struct{ base, want string }{
+		{"/sites", "/sites?currentPage=2&currentPageSize=100"},
+		{"/x/acls?type=1", "/x/acls?type=1&currentPage=2&currentPageSize=100"},
+	}
+	for _, c := range cases {
+		if got := pageURL(c.base, 2, 100); got != c.want {
+			t.Errorf("pageURL(%q) = %q, want %q", c.base, got, c.want)
+		}
+	}
+}
+
+// TestListAllPagination proves the client walks every page of a list endpoint,
+// not just the first — the mock here honours currentPage and serves the 250
+// items across three pages (100 + 100 + 50).
+func TestListAllPagination(t *testing.T) {
+	const total = 250
+	var pagesServed []int
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/info", func(w http.ResponseWriter, _ *http.Request) {
+		writeEnvelope(w, 0, "", map[string]any{"omadacId": "abc123"})
+	})
+	mux.HandleFunc("/abc123/api/v2/login", func(w http.ResponseWriter, _ *http.Request) {
+		writeEnvelope(w, 0, "", map[string]any{"token": "tok-xyz"})
+	})
+	mux.HandleFunc("/abc123/api/v2/sites", func(w http.ResponseWriter, r *http.Request) {
+		page, _ := strconv.Atoi(r.URL.Query().Get("currentPage"))
+		size, _ := strconv.Atoi(r.URL.Query().Get("currentPageSize"))
+		pagesServed = append(pagesServed, page)
+		start := (page - 1) * size
+		data := []map[string]any{}
+		for i := start; i < start+size && i < total; i++ {
+			data = append(data, map[string]any{"id": fmt.Sprintf("site-%d", i), "name": "s"})
+		}
+		writeEnvelope(w, 0, "", map[string]any{"totalRows": total, "data": data})
+	})
+
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	c, err := NewClient(context.Background(), srv.URL, "admin", "secret", true)
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+	sites, err := c.ListSites(context.Background())
+	if err != nil {
+		t.Fatalf("ListSites: %v", err)
+	}
+	if len(sites) != total {
+		t.Fatalf("got %d sites, want %d", len(sites), total)
+	}
+	if want := []int{1, 2, 3}; !slices.Equal(pagesServed, want) {
+		t.Fatalf("pages requested = %v, want %v", pagesServed, want)
+	}
+	if sites[0].ID != "site-0" || sites[total-1].ID != fmt.Sprintf("site-%d", total-1) {
+		t.Fatalf("wrong ordering/content: first=%s last=%s", sites[0].ID, sites[total-1].ID)
 	}
 }
 

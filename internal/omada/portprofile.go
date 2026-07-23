@@ -66,19 +66,9 @@ func profilesPath(siteID string) string {
 	return fmt.Sprintf("/sites/%s/setting/lan/profiles", siteID)
 }
 
-func profilesListPath(siteID string) string {
-	return profilesPath(siteID) + "?currentPage=1&currentPageSize=1000"
-}
-
 // ListPortProfiles returns all port profiles for a site.
 func (c *Client) ListPortProfiles(ctx context.Context, siteID string) ([]PortProfile, error) {
-	var out struct {
-		Data []PortProfile `json:"data"`
-	}
-	if err := c.Do(ctx, "GET", profilesListPath(siteID), nil, &out); err != nil {
-		return nil, fmt.Errorf("listing port profiles: %w", err)
-	}
-	return out.Data, nil
+	return listAll[PortProfile](ctx, c, "port profiles", profilesPath(siteID))
 }
 
 // GetPortProfile returns one profile by id.
@@ -117,7 +107,7 @@ func (c *Client) CreatePortProfile(ctx context.Context, siteID string, fields ma
 // (spanningTreeSetting, dhcpL2RelaySettings) so unmodelled keys such as the STP
 // `instances` list survive.
 func (c *Client) UpdatePortProfile(ctx context.Context, siteID, id string, fields map[string]any) (*PortProfile, error) {
-	cur, err := c.RawByID(ctx, profilesListPath(siteID), "id", id)
+	cur, err := c.RawByID(ctx, profilesPath(siteID), "id", id)
 	if err != nil {
 		return nil, err
 	}

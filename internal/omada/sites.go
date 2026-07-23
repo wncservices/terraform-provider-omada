@@ -5,7 +5,6 @@ package omada
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 )
 
@@ -18,31 +17,7 @@ type Site struct {
 
 // ListSites returns every site on the controller, following pagination.
 func (c *Client) ListSites(ctx context.Context) ([]Site, error) {
-	var all []Site
-	page := 1
-	const size = 100
-
-	for {
-		var pr PaginatedResult
-		path := fmt.Sprintf("/sites?currentPage=%d&currentPageSize=%d", page, size)
-		if err := c.Do(ctx, "GET", path, nil, &pr); err != nil {
-			return nil, fmt.Errorf("listing sites: %w", err)
-		}
-
-		var chunk []Site
-		if len(pr.Data) > 0 {
-			if err := json.Unmarshal(pr.Data, &chunk); err != nil {
-				return nil, fmt.Errorf("decoding sites page %d: %w", page, err)
-			}
-		}
-		all = append(all, chunk...)
-
-		if len(all) >= pr.TotalRows || len(chunk) == 0 {
-			break
-		}
-		page++
-	}
-	return all, nil
+	return listAll[Site](ctx, c, "sites", "/sites")
 }
 
 // ResolveSiteID returns the controller id for the given site name. If name is

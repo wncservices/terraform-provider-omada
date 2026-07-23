@@ -42,13 +42,7 @@ func lanDNSPath(siteID string) string {
 
 // ListLanDNS returns all LAN DNS records for a site.
 func (c *Client) ListLanDNS(ctx context.Context, siteID string) ([]LanDNS, error) {
-	var out struct {
-		Data []LanDNS `json:"data"`
-	}
-	if err := c.Do(ctx, "GET", lanDNSPath(siteID), nil, &out); err != nil {
-		return nil, fmt.Errorf("listing lan dns: %w", err)
-	}
-	return out.Data, nil
+	return listAll[LanDNS](ctx, c, "lan dns", lanDNSPath(siteID))
 }
 
 // GetLanDNS returns a single LAN DNS record by id (filters the list endpoint).
