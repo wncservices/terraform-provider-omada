@@ -28,11 +28,11 @@ without reading the whole repo first.
 | `omada_firewall_acl` | full CRUD verified live ✅ |
 | `omada_wlan_group` | full CRUD verified live ✅ |
 | `omada_mdns_reflector` | full CRUD verified live ✅ |
-| `omada_port_profile` | full CRUD; managed field subset (rest preserved via read-modify-write) |
-| `omada_wireless_network` | SSID; managed field subset; `psk` is write-only |
+| `omada_port_profile` | full CRUD verified live ✅; ~30 fields incl. spanning-tree; controller-owned fields preserved via read-modify-write |
+| `omada_wireless_network` | SSID, full CRUD verified live ✅; ~30 fields incl. PSK version/PMF/multicast; `psk` is write-only |
 | `omada_vpn` | manages `name`/`enable` only; **write verbs inferred, not live-validated** |
 | `omada_static_route` | full CRUD verified live ✅ (update is `PUT` — `PATCH` is rejected) |
-| `omada_site_settings` | singleton; manages the device-LED toggle (subset) |
+| `omada_site_settings` | singleton, read/update verified live ✅; ~45 fields across LED, mesh, roaming, band steering, airtime fairness, LLDP, auto-upgrade, alerts, remote logging, speed test, RF beacon; `deviceAccount` never touched |
 | data sources `omada_sites`, `omada_networks`, `omada_wan` | ✅ (`omada_wan` is **read-only by design** — see limitations) |
 
 Every resource has mock-backed acceptance tests (create → import → update) that run
@@ -54,9 +54,10 @@ against a real v6.2 controller with throwaway objects (created and deleted).
 - `omada_vpn` manages only `name`/`enable` and its write verbs are **inferred**
   (the read shape is live-verified, but create/update/delete were not exercised on
   hardware). Prefer importing an existing VPN and toggling `enable`.
-- `omada_port_profile`, `omada_wireless_network` and `omada_site_settings` manage a
-  practical subset of fields; unmanaged fields are preserved on update
-  (read-modify-write).
+- `omada_port_profile` and `omada_wireless_network` model a practical subset of the
+  many fields those objects carry; `omada_site_settings` covers the main setting
+  groups (~45 fields). In all three, fields the provider doesn't model are preserved
+  on update (read-modify-write), never blanked.
 - **WAN settings are exposed read-only** (the `omada_wan` data source), not as a
   managed resource. `/setting/wan/networks` is a single large document that mixes
   configuration with read-only `support*` capability flags, and its write verbs are
