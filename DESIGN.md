@@ -114,6 +114,7 @@ preserved via read-modify-write.
 | `omada_lan_dns` | CRUD | live | |
 | `omada_port_forward` | CRUD | live | |
 | `omada_ip_group` | CRUD | live | delete path is `/groups/{type}/{id}` |
+| `omada_port_group` | CRUD | live | type-1 group; ACL ref via `*_type = 2` |
 | `omada_firewall_acl` | CRUD | live | ACL type auto-discovered on import; custom ports/devices sent empty (§5.3) |
 | `omada_wlan_group` | CRUD | live | |
 | `omada_mdns_reflector` | CRUD | live | |
@@ -207,13 +208,19 @@ create/update/delete for each VPN type the controller supports (IPsec / WireGuar
 OpenVPN is gone in v6.2), confirm the verbs and payloads, then flip the README/matrix
 note to "live" and widen the modelled field set beyond `name`/`enable`.
 
-### 5.3 Firewall ACL custom ports/devices 🟢
+### 5.3 Firewall ACL port/device scoping 🟢
 
-**Status:** `customAclPorts` / `customAclDevices` are sent **empty** — the ACL
-works but you can't express port- or device-scoped rules through Terraform.
-**To implement:** model both as nested lists on `omada_firewall_acl`, capture their
-payload shape from the UI, and add them to the client struct + mock + test. Small,
-self-contained, no new auth. Good starter task.
+**Status:** the common case is covered — port-scoped rules use a reusable
+**port group** (`omada_port_group`, a type-1 profile group) referenced from the
+ACL via `source_type`/`destination_type = 2`. Both shipped and verified live
+(zero-diff import of a real port group + the ACL that references it).
+
+Still open: the ACL's **inline** `customAclPorts` / `customAclDevices` fields —
+ports/devices specified on the rule itself rather than through a group — are sent
+empty. On a v6.2 controller the UI populates these only in specific modes; every
+live rule tested had them empty, so the populated payload shape is still
+uncaptured. **To implement:** capture the shape from a rule that uses inline
+ports (not a group), then model both as nested lists on `omada_firewall_acl`.
 
 ### 5.4 Writable WAN (`omada_wan`) — deliberately deferred
 

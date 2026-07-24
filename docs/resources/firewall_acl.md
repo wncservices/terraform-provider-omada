@@ -3,12 +3,12 @@
 page_title: "omada_firewall_acl Resource - omada"
 subcategory: ""
 description: |-
-  Manages a firewall ACL rule on the Omada controller. Sources/destinations reference network IDs or IP-group IDs (per source_type/destination_type).
+  Manages a firewall ACL rule on the Omada controller. Sources/destinations reference network, IP-group or port-group IDs (per source_type/destination_type).
 ---
 
 # omada_firewall_acl (Resource)
 
-Manages a firewall ACL rule on the Omada controller. Sources/destinations reference network IDs or IP-group IDs (per `source_type`/`destination_type`).
+Manages a firewall ACL rule on the Omada controller. Sources/destinations reference network, IP-group or port-group IDs (per `source_type`/`destination_type`).
 
 ## Example Usage
 
@@ -35,16 +35,16 @@ resource "omada_firewall_acl" "mgmt_to_services" {
 - `destination_ids` (List of String) Destination entity IDs.
 - `name` (String) Rule name.
 - `policy` (String) `permit` or `deny`.
-- `source_ids` (List of String) Source entity IDs (network or IP-group IDs, per source_type).
+- `source_ids` (List of String) Source entity IDs (network, IP-group or port-group IDs, per source_type).
 
 ### Optional
 
-- `destination_type` (Number) Destination entity type: 0=network, 1=IP group.
+- `destination_type` (Number) Destination entity type: 0=network, 1=IP group, 2=port group.
 - `direction` (Attributes) Gateway ACL direction. Defaults to LAN-to-LAN. (see [below for nested schema](#nestedatt--direction))
 - `enable` (Boolean) Whether the rule is enabled.
 - `protocols` (List of Number) IP protocol numbers (6=TCP, 17=UDP, 1=ICMP, 256=all). Defaults to all.
 - `site` (String) Site name. Defaults to the primary site. Changing this forces replacement.
-- `source_type` (Number) Source entity type: 0=network, 1=IP group.
+- `source_type` (Number) Source entity type: 0=network, 1=IP group, 2=port group.
 - `type` (String) ACL type: `gateway`, `switch`, or `eap`. Changing forces replacement.
 
 ### Read-Only
