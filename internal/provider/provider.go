@@ -151,6 +151,7 @@ func (p *OmadaProvider) Resources(_ context.Context) []func() resource.Resource 
 		NewWirelessNetworkResource,
 		NewVPNResource,
 		NewStaticRouteResource,
+		NewPortalResource,
 		NewSiteSettingsResource,
 	}
 }

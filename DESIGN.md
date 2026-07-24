@@ -121,6 +121,7 @@ preserved via read-modify-write.
 | `omada_port_profile` | CRUD | live · subset | STP block deep-merged |
 | `omada_wireless_network` | CRUD | live · subset | `psk` write-only |
 | `omada_static_route` | CRUD | live | update is `PUT` (`PATCH` → `-1600`) |
+| `omada_portal` | CRUD | live · subset | write-only `password`; bare-array list; PATCH RMW |
 | `omada_vpn` | CRUD | **read live, writes inferred** | see §5.2 |
 | `omada_site_settings` | R/U (singleton) | live · subset | ~45 fields; large object |
 | `omada_sites` (data) | R | live | |
@@ -243,6 +244,19 @@ mac, ip, firmware, uptime, client count, upgrade flag). Per-device *config*
 still not started.
 **To implement:** add per-device config resources on top of the data source one
 capability at a time. Each capability is a small task; the umbrella is large.
+
+### 5.6a Captive-portal landing page / background image 🟢
+
+**Status:** `omada_portal` covers the functional settings. The landing-page design
+(`portalCustomize`: logo, colours, terms of service, background) is deep-merged and
+therefore preserved, but not manageable from Terraform.
+**To implement a background image:** the controller keeps portal images in a media
+library — `portalCustomize.background`, `backgroundPictureIndex` and the
+`bgPicCoordinatesOfLibrary` / `mobileBgPicCoordinatesOfLibrary` crop rectangles
+reference it, and `/setting/portals/media` exists (a bare GET returns `-34326`,
+i.e. the path is valid but wants parameters). Needs the multipart upload captured
+from the UI, then a resource (or a `background_image` attribute taking a local file
+path + hash) that uploads and references the picture index.
 
 ### 5.6 Smaller gaps 🟢
 
