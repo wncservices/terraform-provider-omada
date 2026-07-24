@@ -79,7 +79,7 @@ func (r *firewallACLResource) Metadata(_ context.Context, req resource.MetadataR
 
 func (r *firewallACLResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
-		MarkdownDescription: "Manages a firewall ACL rule on the Omada controller. Sources/destinations reference network IDs or IP-group IDs (per `source_type`/`destination_type`).",
+		MarkdownDescription: "Manages a firewall ACL rule on the Omada controller. Sources/destinations reference network, IP-group or port-group IDs (per `source_type`/`destination_type`).",
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
 				Computed:      true,
@@ -122,18 +122,18 @@ func (r *firewallACLResource) Schema(_ context.Context, _ resource.SchemaRequest
 				Computed:            true,
 			},
 			"source_type": schema.Int64Attribute{
-				MarkdownDescription: "Source entity type: 0=network, 1=IP group.",
+				MarkdownDescription: "Source entity type: 0=network, 1=IP group, 2=port group.",
 				Optional:            true,
 				Computed:            true,
 				Default:             int64default.StaticInt64(0),
 			},
 			"source_ids": schema.ListAttribute{
-				MarkdownDescription: "Source entity IDs (network or IP-group IDs, per source_type).",
+				MarkdownDescription: "Source entity IDs (network, IP-group or port-group IDs, per source_type).",
 				ElementType:         types.StringType,
 				Required:            true,
 			},
 			"destination_type": schema.Int64Attribute{
-				MarkdownDescription: "Destination entity type: 0=network, 1=IP group.",
+				MarkdownDescription: "Destination entity type: 0=network, 1=IP group, 2=port group.",
 				Optional:            true,
 				Computed:            true,
 				Default:             int64default.StaticInt64(0),

@@ -9,7 +9,7 @@ shapes are derived from the UI. This is deliberate: it's the only surface with f
 config coverage, including gateway/router settings that other providers omit.
 
 > **Status: released.** `v0.2.0` is the current release on the Terraform Registry —
-> **12 resources** (table below) + 6 data sources, each with acceptance tests in
+> **13 resources** (table below) + 6 data sources, each with acceptance tests in
 > CI. Verified against a live Omada v6.2 controller.
 
 **Contributing?** See [`DESIGN.md`](DESIGN.md) for the architecture, the coverage
@@ -25,6 +25,7 @@ without reading the whole repo first.
 | `omada_lan_dns` | full CRUD verified live ✅ |
 | `omada_port_forward` | full CRUD verified live ✅ |
 | `omada_ip_group` | full CRUD verified live ✅ |
+| `omada_port_group` | full CRUD verified live ✅ (referenced by ACLs via `source_type`/`destination_type = 2`) |
 | `omada_firewall_acl` | full CRUD verified live ✅ |
 | `omada_wlan_group` | full CRUD verified live ✅ |
 | `omada_mdns_reflector` | full CRUD verified live ✅ |
@@ -50,8 +51,10 @@ against a real v6.2 controller with throwaway objects (created and deleted).
   updating and deleting** existing networks all work. Full create support needs
   the OpenAPI auth flow added (register an Open API app under *Controller →
   Settings → Platform Integration → Open API*).
-- Firewall ACL `customAclPorts` / `customAclDevices` are sent empty (not yet
-  modelled).
+- Firewall ACLs can reference reusable **port groups** (`omada_port_group`, via
+  `source_type`/`destination_type = 2`). The rule's own inline `customAclPorts` /
+  `customAclDevices` fields (specifying ports/devices on the rule itself rather
+  than through a group) are still sent empty — not yet modelled.
 - `omada_vpn` manages only `name`/`enable` and its write verbs are **inferred**
   (the read shape is live-verified, but create/update/delete were not exercised on
   hardware). Prefer importing an existing VPN and toggling `enable`.
