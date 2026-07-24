@@ -379,9 +379,28 @@ devtools against the UI) rather than more guessing:
   absent, which suggests this whole group lives somewhere unguessed. One-to-One
   NAT also needs multiple WAN IPs (`supportWanMultipleIp`), so the page may only
   materialise once the WAN is configured for it.
-- **WLAN optimization** (the RF auto-optimization tool). Not under `/setting/*`
-  nor `/tools/*`; it is an *action* rather than config, so it likely posts to a
-  one-shot endpoint and may not suit a Terraform resource at all.
+- **WLAN optimization** — endpoints found, but it is an **action, not config**.
+  It lives outside `/setting/*` entirely, under `/sites/{id}/rfPlanning`:
+
+  | Call | Behaviour |
+  |---|---|
+  | `GET /rfPlanning` | returns the parameter document: `channelDeployEnable*`, `powerAdjustEnable*`, `chanWidth{2,5,6}g`, `mode`, `excludeAps`, `scheduleEnable`, `occurrence{timingType,hour,minute}` |
+  | `GET /rfPlanning/result` | `{"status": N}` — the state of an optimization *run* |
+  | `PUT /rfPlanning/config` | a real route (bogus siblings answer `-1600`) that **validates** the full document — partial or wrapped bodies are rejected `-1001`, and `mode: 1` is rejected — but **nothing written through it is reflected by `GET /rfPlanning`** |
+
+  Every field tested (`excludeAps`, `chanWidth2g`, `channelDeployEnable6g`,
+  `occurrence.minute`) round-tripped as accepted-but-unpersisted. So
+  `/rfPlanning/config` appears to *stage* parameters for an optimization run
+  that a separate call then starts — a wizard, not durable state.
+
+  **This is a poor fit for a Terraform resource** as it stands: Terraform
+  reconciles desired state, and there is no state here to reconcile, only a job
+  to trigger. Before building anything, capture the UI's **Save** and **Run**
+  requests from Tools → WLAN Optimization to find whether any of it persists.
+  If only the *schedule* persists, that part alone could be a small resource.
+
+  (Note: the run-triggering call was deliberately never fired during this
+  investigation — starting an optimization re-channels live APs.)
 
 ### 5.10 Already covered — don't re-implement
 
