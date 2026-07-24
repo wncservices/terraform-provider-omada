@@ -710,6 +710,96 @@ func newMockController(t *testing.T) *httptest.Server {
 		})
 	})
 
+	// Stateful captive-portal store. Like the real controller: the list result is
+	// a bare JSON array, create returns a null result, update is PATCH with a full
+	// read-modify-write payload. `simplePassword` is stored but never returned in
+	// the list, mirroring the write-only password.
+	portals := map[string]map[string]any{}
+	portalNext := 1
+	const portalBase = "/abc123/api/v2/sites/site-1/setting/portals"
+	// portalPublic strips the write-only password from a stored portal.
+	portalPublic := func(p map[string]any) map[string]any {
+		out := map[string]any{}
+		for k, v := range p {
+			if k == "simplePassword" {
+				continue
+			}
+			out[k] = v
+		}
+		return out
+	}
+	mux.HandleFunc(portalBase, func(w http.ResponseWriter, r *http.Request) {
+		if !requireToken(w, r) {
+			return
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		switch r.Method {
+		case http.MethodPost:
+			var in map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&in)
+			id := fmt.Sprintf("portal-%d", portalNext)
+			portalNext++
+			in["id"] = id
+			// Controller-owned defaults the provider must preserve on update.
+			if _, ok := in["portalCustomize"]; !ok {
+				in["portalCustomize"] = map[string]any{
+					"defaultLanguage": 1, "copyrightEnable": false, "buttonText": "Log In",
+				}
+			}
+			portals[id] = in
+			writeEnvelope(w, 0, "", nil)
+		default: // GET — bare array
+			data := make([]map[string]any, 0, len(portals))
+			for _, p := range portals {
+				data = append(data, portalPublic(p))
+			}
+			writeEnvelope(w, 0, "", data)
+		}
+	})
+	mux.HandleFunc(portalBase+"/", func(w http.ResponseWriter, r *http.Request) {
+		if !requireToken(w, r) {
+			return
+		}
+		id := strings.TrimPrefix(r.URL.Path, portalBase+"/")
+		mu.Lock()
+		defer mu.Unlock()
+		switch r.Method {
+		case http.MethodDelete:
+			delete(portals, id)
+			writeEnvelope(w, 0, "", nil)
+		case http.MethodPatch:
+			var in map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&in)
+			cur := portals[id]
+			if cur == nil {
+				cur = map[string]any{}
+			}
+			// The real controller rejects a patch whose portalCustomize lost its
+			// required keys — assert the provider sent them back.
+			if pc, ok := in["portalCustomize"].(map[string]any); ok {
+				if _, has := pc["defaultLanguage"]; !has {
+					writeEnvelope(w, -1001, "portalCustomize parameter [defaultLanguage] should not be null", nil)
+					return
+				}
+			}
+			for k, v := range in {
+				cur[k] = v
+			}
+			cur["id"] = id
+			portals[id] = cur
+			writeEnvelope(w, 0, "", nil)
+		default:
+			writeEnvelope(w, -1600, "Unsupported request path.", nil)
+		}
+	})
+	// Unauthenticated debug endpoint so tests can assert the stored password.
+	mux.HandleFunc("/debug/portals", func(w http.ResponseWriter, _ *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		_ = json.NewEncoder(w).Encode(portals)
+	})
+
 	// Devices list — result is a bare JSON array (no pagination envelope), like
 	// the real controller. Seeded with one switch and one AP.
 	mux.HandleFunc("/abc123/api/v2/sites/site-1/devices", func(w http.ResponseWriter, r *http.Request) {

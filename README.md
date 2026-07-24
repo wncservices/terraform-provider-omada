@@ -9,7 +9,7 @@ shapes are derived from the UI. This is deliberate: it's the only surface with f
 config coverage, including gateway/router settings that other providers omit.
 
 > **Status: released.** `v0.2.0` is the current release on the Terraform Registry —
-> **13 resources** (table below) + 6 data sources, each with acceptance tests in
+> **14 resources** (table below) + 6 data sources, each with acceptance tests in
 > CI. Verified against a live Omada v6.2 controller.
 
 **Contributing?** See [`DESIGN.md`](DESIGN.md) for the architecture, the coverage
@@ -33,6 +33,7 @@ without reading the whole repo first.
 | `omada_wireless_network` | SSID, full CRUD verified live ✅; ~30 fields incl. PSK version/PMF/multicast; `psk` is write-only |
 | `omada_vpn` | manages `name`/`enable` only; **write verbs inferred, not live-validated** |
 | `omada_static_route` | full CRUD verified live ✅ (update is `PUT` — `PATCH` is rejected) |
+| `omada_portal` | captive portal; full CRUD verified live ✅; `password` is write-only; landing-page design preserved |
 | `omada_site_settings` | singleton, read/update verified live ✅; ~45 fields across LED, mesh, roaming, band steering, airtime fairness, LLDP, auto-upgrade, alerts, remote logging, speed test, RF beacon; `deviceAccount` never touched |
 | data sources `omada_sites`, `omada_networks`, `omada_port_forwards`, `omada_firewall_acls`, `omada_devices` | ✅ (discovery/inventory — list objects + their IDs for import) |
 | data source `omada_wan` | ✅ **read-only by design** — see limitations |
@@ -69,6 +70,12 @@ against a real v6.2 controller with throwaway objects (created and deleted).
   with a throwaway object: the only object is the live WAN, and a bad write drops
   the internet for the whole site. Read WAN state with the data source; change it in
   the Omada UI.
+- **Captive-portal landing-page design is not modelled.** `omada_portal` manages the
+  functional settings (auth type, password, SSID/network bindings, timeout); the
+  page's look — logo, colours, terms of service, and the **background image** —
+  is preserved on update but must be set in the controller UI. A background image
+  additionally needs a multipart upload to the portal media library, which the
+  provider does not implement.
 - **Per-device config is not modelled** (individual switch-port overrides, AP radio
   settings). The provider manages site-wide profiles, not device-level overrides.
 - **List calls fetch a single large page** (`pageSize=1000`), not a true pagination
