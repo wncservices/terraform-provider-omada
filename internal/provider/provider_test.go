@@ -876,12 +876,30 @@ func newMockController(t *testing.T) *httptest.Server {
 	//     shipping junk to a real gateway.
 	//   - `unmodelledKey` stands in for controller keys the provider does not
 	//     model; it must survive an update (read-modify-write).
+	// Update verb per endpoint — the controller is not consistent, and the
+	// provider records the confirmed verb per SettingDoc. The mock enforces it:
+	// the wrong verb answers -1600 exactly as the real controller does.
+	singletonVerb := map[string]string{
+		"transmission/alg":       http.MethodPut,
+		"firewall/attackdefense": http.MethodPut,
+		"ssh":                    http.MethodPut,
+		"dot1x":                  http.MethodPatch,
+	}
 	singletons := map[string]map[string]any{
+		"ssh": {
+			"sshEnable": false, "sshServerPort": float64(22), "layer3Access": false,
+			"unmodelledKey": "keep-me",
+		},
+		"dot1x": {
+			"enable": false, "authMode": float64(1), "authType": float64(1),
+			"macFormat": float64(0), "vlanAssign": false,
+			"unmodelledKey": "keep-me",
+		},
 		"transmission/alg": {
 			"ftp": true, "ftpPorts": []any{float64(21)},
 			"h323": true, "pptp": true, "ipSec": true,
 			"sip": false, "sipTcp": true, "sipUdp": true,
-			"sipPorts": []any{float64(5060), float64(5061)},
+			"sipPorts":           []any{float64(5060), float64(5061)},
 			"sipDirectSignaling": true, "sipDirectMedia": false,
 			"sipTimeout": false, "sipSignalingTimeout": float64(3600), "sipMediaTimeout": float64(180),
 			"unmodelledKey": "keep-me",
@@ -904,17 +922,18 @@ func newMockController(t *testing.T) *httptest.Server {
 		"resource": float64(0), "supportTcpScanReject": true, "existTcpScanReject": true,
 	}
 	for suffix, doc := range singletons {
+		wantVerb := singletonVerb[suffix]
 		mux.HandleFunc("/abc123/api/v2/sites/site-1/setting/"+suffix, func(w http.ResponseWriter, r *http.Request) {
 			if !requireToken(w, r) {
 				return
 			}
 			mu.Lock()
 			defer mu.Unlock()
-			switch r.Method {
-			case http.MethodPatch:
+			switch {
+			case r.Method != http.MethodGet && r.Method != wantVerb:
 				writeEnvelope(w, -1600, "Unsupported request path.", nil)
 				return
-			case http.MethodPut:
+			case r.Method == wantVerb:
 				var in map[string]any
 				_ = json.NewDecoder(r.Body).Decode(&in)
 				for k := range in {

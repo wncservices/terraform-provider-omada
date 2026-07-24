@@ -155,6 +155,8 @@ func (p *OmadaProvider) Resources(_ context.Context) []func() resource.Resource 
 		NewSiteSettingsResource,
 		NewAttackDefenseResource,
 		NewALGResource,
+		NewSSHSettingsResource,
+		NewDot1XResource,
 	}
 }
 

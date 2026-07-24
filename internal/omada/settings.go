@@ -42,6 +42,9 @@ var (
 	SSHSetting           = SettingDoc{Path: "/setting/ssh", Verb: http.MethodPut}
 	ALGSetting           = SettingDoc{Path: "/setting/transmission/alg", Verb: http.MethodPut}
 	AttackDefenseSetting = SettingDoc{Path: "/setting/firewall/attackdefense", Verb: http.MethodPut}
+	// Note the verb: unlike the three above, dot1x takes PATCH and answers
+	// -1600 to PUT.
+	Dot1XSetting = SettingDoc{Path: "/setting/dot1x", Verb: http.MethodPatch}
 )
 
 func (d SettingDoc) path(siteID string) string {

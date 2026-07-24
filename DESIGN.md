@@ -154,6 +154,8 @@ preserved via read-modify-write.
 | `omada_vpn` | CRUD | **read live, writes inferred** | see §5.2 |
 | `omada_attack_defense` | R/U (singleton) | live · subset | flood defense / packet anomaly / IP options; update is `PUT` |
 | `omada_alg` | R/U (singleton) | live | FTP/H.323/PPTP/IPsec/SIP ALGs; update is `PUT` |
+| `omada_ssh_settings` | R/U (singleton) | live | device SSH; update is `PUT` |
+| `omada_dot1x` | R/U (singleton) | live | site-wide 802.1X; update is `PATCH` |
 | `omada_site_settings` | R/U (singleton) | live · subset | ~45 fields; large object |
 | `omada_sites` (data) | R | live | |
 | `omada_networks` (data) | R | live | |
@@ -348,9 +350,7 @@ are an afternoon each — write a `settingsSpec` and a mock handler.
 
 | Endpoint | Verb | Would become | Notes |
 |---|---|---|---|
-| `/setting/ssh` | `PUT` | `omada_ssh_settings` | `sshEnable`, `sshServerPort`, `layer3Access` — device SSH access |
-| `/setting/dot1x` | `PATCH` | `omada_dot1x` | 802.1X port auth: `enable`, `authMode`, `authType`, `macFormat`, `vlanAssign` |
-| `/setting/radiusProfiles` | POST / `PATCH` / DELETE | `omada_radius_profile` | **list, not singleton**; full CRUD confirmed with a throwaway. Secret is `authServer[].radiusPwd` — see the warning below |
+| `/setting/radiusProfiles` | POST / `PATCH` / DELETE | `omada_radius_profile` | **list, not singleton**; full CRUD confirmed with a throwaway. Secret is `authServer[].radiusPwd` — see the warning below. Needed to make `omada_dot1x` genuinely usable |
 | `/setting/accessControl` | `PATCH` | `omada_portal_access_control` | Captive-portal pre-auth + free-auth policies (`preAuthAccessPolicies`, `freeAuthClientPolicies` — nested lists, so not a plain `settingsSpec`) |
 | `/setting/macAuth` | `PATCH` | `omada_mac_auth` | MAC-based authentication, incl. `ssids` binding |
 | `/setting/upnp` | `PUT` | `omada_upnp` | single `enable` |
