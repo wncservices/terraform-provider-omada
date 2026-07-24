@@ -33,3 +33,11 @@ jobs:
         env:
           GPG_FINGERPRINT: ${{ steps.import_gpg.outputs.fingerprint }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # GoReleaser leaves the release in draft so its uploads are accepted (see
+      # the note in .goreleaser.yml). Publishing is the final, sealing step —
+      # and it is what makes the Terraform Registry ingest the version.
+      - name: Publish the release
+        run: gh release edit "${GITHUB_REF_NAME}" --draft=false --latest
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
