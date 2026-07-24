@@ -865,6 +865,84 @@ func newMockController(t *testing.T) *httptest.Server {
 		writeEnvelope(w, 0, "", siteSettings)
 	})
 
+	// Flat singleton settings documents (ALG, attack defense). Three real
+	// controller behaviours are emulated here because the provider depends on
+	// each of them:
+	//
+	//   - PATCH is rejected with -1600; these endpoints require PUT.
+	//   - reads carry read-only metadata (`resource`, `support*`, `exist*`) that
+	//     the provider must strip before writing back — sending any of it is a
+	//     hard error here, so a regression fails the test rather than silently
+	//     shipping junk to a real gateway.
+	//   - `unmodelledKey` stands in for controller keys the provider does not
+	//     model; it must survive an update (read-modify-write).
+	singletons := map[string]map[string]any{
+		"transmission/alg": {
+			"ftp": true, "ftpPorts": []any{float64(21)},
+			"h323": true, "pptp": true, "ipSec": true,
+			"sip": false, "sipTcp": true, "sipUdp": true,
+			"sipPorts": []any{float64(5060), float64(5061)},
+			"sipDirectSignaling": true, "sipDirectMedia": false,
+			"sipTimeout": false, "sipSignalingTimeout": float64(3600), "sipMediaTimeout": float64(180),
+			"unmodelledKey": "keep-me",
+		},
+		"firewall/attackdefense": {
+			"tcpConnEnable": false, "udpConnEnable": false, "icmpConnEnable": false,
+			"tcpSrcEnable": false, "udpSrcEnable": false, "icmpSrcEnable": false,
+			"tcpNoflagEnable": true, "tcpScanReject": true,
+			"tcpWinnukeEnable": true, "tcpFinSynEnable": true, "tcpFinNoackEnable": true,
+			"pingDeathEnable": true, "pingLargeEnable": false, "pingWanEnable": true,
+			"ipOptionEnable": true, "ipoptSecureEnable": true,
+			"ipoptLooseRouteEnable": true, "ipoptStrictRouteEnable": true,
+			"ipoptRecordRouteEnable": true, "ipoptStreamEnable": true,
+			"ipoptTimestampEnable": true, "ipoptNoopEnable": true,
+			"unmodelledKey": "keep-me",
+		},
+	}
+	// Read-only metadata the controller adds to every read of these documents.
+	singletonMeta := map[string]any{
+		"resource": float64(0), "supportTcpScanReject": true, "existTcpScanReject": true,
+	}
+	for suffix, doc := range singletons {
+		mux.HandleFunc("/abc123/api/v2/sites/site-1/setting/"+suffix, func(w http.ResponseWriter, r *http.Request) {
+			if !requireToken(w, r) {
+				return
+			}
+			mu.Lock()
+			defer mu.Unlock()
+			switch r.Method {
+			case http.MethodPatch:
+				writeEnvelope(w, -1600, "Unsupported request path.", nil)
+				return
+			case http.MethodPut:
+				var in map[string]any
+				_ = json.NewDecoder(r.Body).Decode(&in)
+				for k := range in {
+					if _, isMeta := singletonMeta[k]; isMeta {
+						writeEnvelope(w, -1001, "read-only key "+k+" must not be sent", nil)
+						return
+					}
+				}
+				for k, v := range in {
+					doc[k] = v
+				}
+			}
+			out := map[string]any{}
+			for k, v := range doc {
+				out[k] = v
+			}
+			for k, v := range singletonMeta {
+				out[k] = v
+			}
+			writeEnvelope(w, 0, "", out)
+		})
+	}
+	mux.HandleFunc("/debug/singletons", func(w http.ResponseWriter, _ *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		_ = json.NewEncoder(w).Encode(singletons)
+	})
+
 	// Unauthenticated debug endpoints so tests can assert on the RAW stored
 	// objects — specifically that keys the provider never models (STP
 	// `instances`, and the WiFi `pskSetting.securityKey`) survive updates.

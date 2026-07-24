@@ -8,8 +8,8 @@ the Omada UI uses. TP-Link publishes no documentation for it; endpoints and payl
 shapes are derived from the UI. This is deliberate: it's the only surface with full
 config coverage, including gateway/router settings that other providers omit.
 
-> **Status: released.** `v0.2.0` is the current release on the Terraform Registry —
-> **14 resources** (table below) + 6 data sources, each with acceptance tests in
+> **Status: released.** `v0.4.0` is the current release on the Terraform Registry —
+> **16 resources** (table below) + 6 data sources, each with acceptance tests in
 > CI. Verified against a live Omada v6.2 controller.
 
 **Contributing?** See [`DESIGN.md`](DESIGN.md) for the architecture, the coverage
@@ -34,6 +34,8 @@ without reading the whole repo first.
 | `omada_vpn` | manages `name`/`enable` only; **write verbs inferred, not live-validated** |
 | `omada_static_route` | full CRUD verified live ✅ (update is `PUT` — `PATCH` is rejected) |
 | `omada_portal` | captive portal; full CRUD verified live ✅; `password` is write-only; landing-page design preserved |
+| `omada_attack_defense` | singleton, read/update verified live ✅; flood defense, packet anomaly, IPv4 options |
+| `omada_alg` | singleton, read/update verified live ✅; FTP/H.323/PPTP/IPsec/SIP application-layer gateways |
 | `omada_site_settings` | singleton, read/update verified live ✅; ~45 fields across LED, mesh, roaming, band steering, airtime fairness, LLDP, auto-upgrade, alerts, remote logging, speed test, RF beacon; `deviceAccount` never touched |
 | data sources `omada_sites`, `omada_networks`, `omada_port_forwards`, `omada_firewall_acls`, `omada_devices` | ✅ (discovery/inventory — list objects + their IDs for import) |
 | data source `omada_wan` | ✅ **read-only by design** — see limitations |
@@ -55,7 +57,10 @@ against a real v6.2 controller with throwaway objects (created and deleted).
 - Firewall ACLs can reference reusable **port groups** (`omada_port_group`, via
   `source_type`/`destination_type = 2`). The rule's own inline `customAclPorts` /
   `customAclDevices` fields (specifying ports/devices on the rule itself rather
-  than through a group) are still sent empty — not yet modelled.
+  than through a group) are still sent empty — not yet modelled. On some
+  gateways they are simply unavailable: the ER707-M2 this provider is developed
+  against reports `customAcl: false` in `/setting/capacity`, so the populated
+  payload shape cannot be captured there at all.
 - `omada_vpn` manages only `name`/`enable` and its write verbs are **inferred**
   (the read shape is live-verified, but create/update/delete were not exercised on
   hardware). Prefer importing an existing VPN and toggling `enable`.
@@ -78,8 +83,6 @@ against a real v6.2 controller with throwaway objects (created and deleted).
   provider does not implement.
 - **Per-device config is not modelled** (individual switch-port overrides, AP radio
   settings). The provider manages site-wide profiles, not device-level overrides.
-- **List calls fetch a single large page** (`pageSize=1000`), not a true pagination
-  loop — fine for a homelab, insufficient for a site with >1000 objects of one type.
 
 The full, prioritised roadmap — with implementation notes for each gap — is in
 [`DESIGN.md`](DESIGN.md#5-whats-missing--the-roadmap).

@@ -153,6 +153,8 @@ func (p *OmadaProvider) Resources(_ context.Context) []func() resource.Resource 
 		NewStaticRouteResource,
 		NewPortalResource,
 		NewSiteSettingsResource,
+		NewAttackDefenseResource,
+		NewALGResource,
 	}
 }
 
