@@ -80,7 +80,36 @@ This is why, e.g., a port-profile update preserves the STP `instances` list and
 When you add fields to an existing resource, decide whether each new nested object
 needs to be in that resource's `deepKeys` list.
 
-### 2.5 Invariants you must not break
+### 2.5 Singleton settings documents
+
+Several controller settings are **flat singleton documents**: one JSON object per
+site behind a fixed path, with no id, that can only be read and updated — never
+created or deleted. SSH, ALG and attack defense are all this shape.
+
+They are implemented once, not per endpoint:
+
+- `internal/omada/settings.go` — a `SettingDoc{Path, Verb}` per endpoint, plus
+  `GetSetting` / `UpdateSetting` (read-modify-write).
+- `internal/provider/settings_singleton.go` — a generic table-driven resource.
+  Adding one is then just a `settingsSpec` listing `attr → controller key → kind`
+  (see `alg_resource.go`, ~40 lines including docs).
+
+Two behaviours are baked in because every one of these endpoints shares them:
+
+- **Reads carry controller-owned metadata** — a `resource` counter and the
+  `support*` / `exist*` capability flags the UI uses to decide what to render.
+  These must be stripped before writing back; `controllerOwnedKey` does it, and a
+  mock handler fails the test if any leaks into a write.
+- **The update verb varies.** `/setting/ssh`, `/setting/transmission/alg` and
+  `/setting/firewall/attackdefense` reject `PATCH` with `-1600` and need `PUT`;
+  `/setting/dot1x` and `/setting/accessControl` are the reverse. Each `SettingDoc`
+  records the verb confirmed on hardware.
+
+Unlike list-backed resources, the singleton resource addresses plan/state by
+`path.Root(attr)` instead of a struct with `tfsdk` tags, because the field set
+differs per spec and one Go type cannot cover them all.
+
+### 2.6 Invariants you must not break
 
 These are enforced by tests and/or matter for safety. Read before touching the
 relevant resource.
@@ -123,6 +152,10 @@ preserved via read-modify-write.
 | `omada_static_route` | CRUD | live | update is `PUT` (`PATCH` → `-1600`) |
 | `omada_portal` | CRUD | live · subset | write-only `password`; bare-array list; PATCH RMW |
 | `omada_vpn` | CRUD | **read live, writes inferred** | see §5.2 |
+| `omada_attack_defense` | R/U (singleton) | live · subset | flood defense / packet anomaly / IP options; update is `PUT` |
+| `omada_alg` | R/U (singleton) | live | FTP/H.323/PPTP/IPsec/SIP ALGs; update is `PUT` |
+| `omada_ssh_settings` | R/U (singleton) | live | device SSH; update is `PUT` |
+| `omada_dot1x` | R/U (singleton) | live | site-wide 802.1X; update is `PATCH` |
 | `omada_site_settings` | R/U (singleton) | live · subset | ~45 fields; large object |
 | `omada_sites` (data) | R | live | |
 | `omada_networks` (data) | R | live | |
@@ -164,6 +197,33 @@ it end to end.
    `make docs`. **Never hand-edit `docs/`** — CI fails on a stale diff.
 8. **Gate.** `make build && make test && TF_ACC=1 make testacc && make lint && make docs`
    all clean.
+
+### Finding an undocumented endpoint
+
+Step 1 of the recipe assumes you can capture the UI's request. When you can't
+(or want to check first whether an endpoint exists at all), these work well and
+need only a read-only session:
+
+- **Probe paths directly.** An unknown path returns `-1600 Unsupported request
+  path.`; a real one returns data or a *different* error (`-1001` invalid
+  parameters, `-34326` object does not exist). That distinction makes a
+  brute-force sweep cheap and unambiguous. Watch the casing: paths are
+  **camelCase** (`/setting/radiusProfiles`, `/setting/accessControl`,
+  `/setting/transmission/portForwardings`) even though a few are all-lower
+  (`/setting/firewall/attackdefense`).
+- **Ask the controller what the gateway supports.**
+  `GET /sites/{id}/setting/capacity` returns a feature→bool map (`oneToOneNat`,
+  `disableNat`, `customAcl`, `policyRouting`, `ipsec`, …). Use it to tell "this
+  gateway can't do that" apart from "I haven't found the path yet", and to
+  explain empty payload fields.
+- **Determine the update verb without changing anything.** Read the document,
+  strip controller-owned keys, and `PUT`/`PATCH` its own values straight back.
+  A wrong verb answers `-1600` and a right one answers `0` — and because the
+  payload is what was already there, nothing is modified. This is how every verb
+  in `settings.go` was confirmed on live hardware.
+- **Mine the web app.** `js/app/*.js` and `js/su/*.js` hold a handful of paths,
+  but the settings pages are lazy-loaded and not reachable by URL guessing, so
+  this is a weaker source than the three techniques above.
 
 ### Testing model — note
 
@@ -220,8 +280,12 @@ Still open: the ACL's **inline** `customAclPorts` / `customAclDevices` fields �
 ports/devices specified on the rule itself rather than through a group — are sent
 empty. On a v6.2 controller the UI populates these only in specific modes; every
 live rule tested had them empty, so the populated payload shape is still
-uncaptured. **To implement:** capture the shape from a rule that uses inline
-ports (not a group), then model both as nested lists on `omada_firewall_acl`.
+uncaptured. It may not be capturable on all hardware: the ER707-M2 used for
+development reports **`customAcl: false`** in `/setting/capacity`, i.e. the
+gateway does not offer inline ACL ports at all. **To implement:** on a gateway
+whose capacity reports `customAcl: true`, capture the shape from a rule that
+uses inline ports (not a group), then model both as nested lists on
+`omada_firewall_acl`.
 
 ### 5.4 Writable WAN (`omada_wan`) — deliberately deferred
 
@@ -270,14 +334,84 @@ path + hash) that uploads and references the picture index.
   (discovery — list objects + IDs for import). `omada_clients` and a
   device-discovery source (§5.5) are still open.
 
-### 5.7 Client-level: pagination
+### 5.7 Client-level: pagination — **done**
 
-**Status:** list calls request `?currentPage=1&currentPageSize=1000` — a single big
-page, **not** a real pagination loop. Fine for a homelab; wrong for a site with
->1000 objects of one type.
-**To implement:** a paging helper in `client.go` that follows `totalRows` across
-pages, used by the `List*` methods. Purely internal; mock already returns the
-paging envelope fields.
+Shipped. `internal/omada/pagination.go` provides a generic `listAll[T]` that
+follows `totalRows` across pages; every `List*` method and `RawList` routes
+through it. Endpoints that return a **bare JSON array** rather than a paging
+envelope (`/devices`, `/setting/portals`, `/setting/radiusProfiles`) are decoded
+directly and deliberately bypass the pager.
+
+### 5.8 Endpoints discovered but not yet modelled 🟢
+
+All of these were located and their shape read on a live v6.2 controller
+(ER707-M2 gateway); none is implemented yet. With §2.5's singleton scaffold most
+are an afternoon each — write a `settingsSpec` and a mock handler.
+
+| Endpoint | Verb | Would become | Notes |
+|---|---|---|---|
+| `/setting/radiusProfiles` | POST / `PATCH` / DELETE | `omada_radius_profile` | **list, not singleton**; full CRUD confirmed with a throwaway. Secret is `authServer[].radiusPwd` — see the warning below. Needed to make `omada_dot1x` genuinely usable |
+| `/setting/accessControl` | `PATCH` | `omada_portal_access_control` | Captive-portal pre-auth + free-auth policies (`preAuthAccessPolicies`, `freeAuthClientPolicies` — nested lists, so not a plain `settingsSpec`) |
+| `/setting/macAuth` | `PATCH` | `omada_mac_auth` | MAC-based authentication, incl. `ssids` binding |
+| `/setting/upnp` | `PUT` | `omada_upnp` | single `enable` |
+| `/setting/snmp` | `PUT` | `omada_snmp` | v1/v2c/v3, security level, auth/privacy mode |
+| `/setting/firewall/macfilter` | — | `omada_mac_filter` | |
+| `/setting/service/ddns` | — | `omada_ddns` | paginated list |
+| `/setting/service/rebootSchedules`, `/setting/service/poeSchedules` | — | schedules | paginated lists |
+| `/setting/transmission/sessionLimits`, `/setting/transmission/bandwidthControls` | — | QoS-ish | |
+| `/setting/transmission/policyRoutings` | — | `omada_policy_route` | paginated list; complements `omada_static_route` |
+
+⚠️ **`radiusPwd` must be write-only.** The controller returns the RADIUS shared
+secret in **plaintext** on read, exactly like the WiFi `psk`. Per §2.6 that means
+it is never read into state — model it write-only, deep-merge it on update, and
+add it to `ImportStateVerifyIgnore`.
+
+### 5.9 Wanted but *not located* — needs a UI capture
+
+Probing found no path for these, so they need step 1 of the recipe (browser
+devtools against the UI) rather than more guessing:
+
+- **One-to-One NAT** and **Disable NAT**. `/setting/capacity` reports
+  `oneToOneNat: true` and `disableNat: true` on the ER707-M2, so the gateway
+  supports them and an endpoint must exist — but nothing was found under
+  `/setting/transmission/*`, `/setting/firewall/*`, `/setting/nat/*` or the WAN
+  document across ~40 name spellings each. DMZ and port triggering were equally
+  absent, which suggests this whole group lives somewhere unguessed. One-to-One
+  NAT also needs multiple WAN IPs (`supportWanMultipleIp`), so the page may only
+  materialise once the WAN is configured for it.
+- **WLAN optimization** — endpoints found, but it is an **action, not config**.
+  It lives outside `/setting/*` entirely, under `/sites/{id}/rfPlanning`:
+
+  | Call | Behaviour |
+  |---|---|
+  | `GET /rfPlanning` | returns the parameter document: `channelDeployEnable*`, `powerAdjustEnable*`, `chanWidth{2,5,6}g`, `mode`, `excludeAps`, `scheduleEnable`, `occurrence{timingType,hour,minute}` |
+  | `GET /rfPlanning/result` | `{"status": N}` — the state of an optimization *run* |
+  | `PUT /rfPlanning/config` | a real route (bogus siblings answer `-1600`) that **validates** the full document — partial or wrapped bodies are rejected `-1001`, and `mode: 1` is rejected — but **nothing written through it is reflected by `GET /rfPlanning`** |
+
+  Every field tested (`excludeAps`, `chanWidth2g`, `channelDeployEnable6g`,
+  `occurrence.minute`) round-tripped as accepted-but-unpersisted. So
+  `/rfPlanning/config` appears to *stage* parameters for an optimization run
+  that a separate call then starts — a wizard, not durable state.
+
+  **This is a poor fit for a Terraform resource** as it stands: Terraform
+  reconciles desired state, and there is no state here to reconcile, only a job
+  to trigger. Before building anything, capture the UI's **Save** and **Run**
+  requests from Tools → WLAN Optimization to find whether any of it persists.
+  If only the *schedule* persists, that part alone could be a small resource.
+
+  (Note: the run-triggering call was deliberately never fired during this
+  investigation — starting an optimization re-channels live APs.)
+
+### 5.10 Already covered — don't re-implement
+
+Two things commonly asked for are **already modelled** and just aren't obvious
+from the resource names:
+
+- **Isolation.** `omada_network.isolation` (LAN-to-LAN isolation) and
+  `omada_wireless_network.guest_net` (guest/client isolation on an SSID).
+- **Multicast.** `omada_network` carries `igmp_snoop_enable`, `mld_snoop_enable`
+  and `fast_leave_enable`; `omada_wireless_network` carries the
+  `multicast_*` family.
 
 ---
 
@@ -285,7 +419,7 @@ paging envelope fields.
 
 - Semver via signed tags. On a `v*` tag, GoReleaser builds multi-platform archives,
   **GPG-signs** the checksums, and publishes a GitHub Release; the Terraform Registry
-  ingests it. Current line: `v0.1.x`.
+  ingests it. Current line: `v0.4.x`.
 - Breaking schema changes wait for `v1.0.0`. Until then, additive field coverage and
   new resources are the normal cadence.
 - CI (`.github/workflows/test.yml`) runs build, unit + acceptance tests, lint, and a
