@@ -157,6 +157,7 @@ preserved via read-modify-write.
 | `omada_ssh_settings` | R/U (singleton) | live | device SSH; update is `PUT` |
 | `omada_dot1x` | R/U (singleton) | live | site-wide 802.1X; update is `PATCH` |
 | `omada_time_range` | CRUD | live | schedule profile; create returns `profileId`; list has no `totalRows` |
+| `omada_dhcp_reservation` | CRUD | live | item path keyed on **MAC**; unknown key still answers 0 |
 | `omada_disable_nat` | CRUD | live (delete inferred) | plural list / singular item paths; update is `PUT`; one rule per WAN port |
 | `omada_site_settings` | R/U (singleton) | live · subset | ~45 fields; large object |
 | `omada_sites` (data) | R | live | |
@@ -364,33 +365,23 @@ are an afternoon each — write a `settingsSpec` and a mock handler.
 | `/setting/upnp` | `PUT` | `omada_upnp` | single `enable` |
 | `/setting/snmp` | `PUT` | `omada_snmp` | v1/v2c/v3, security level, auth/privacy mode |
 | `/setting/firewall/macfilter` | — | `omada_mac_filter` | |
-| `/setting/service/dhcp` | ⚠️ **blocked** | `omada_dhcp_reservation` | see the warning below — **do not implement yet** |
 | `/setting/service/ddns` | — | `omada_ddns` | paginated list |
 | `/setting/service/rebootSchedules`, `/setting/service/poeSchedules` | — | schedules | paginated lists |
 | `/setting/transmission/sessionLimits`, `/setting/transmission/bandwidthControls` | — | QoS-ish | |
 | `/setting/transmission/policyRoutings` | — | `omada_policy_route` | paginated list; complements `omada_static_route` |
 
-⚠️ **DHCP reservations (`/setting/service/dhcp`) must not be implemented yet.**
-`POST` works and returns the new id as a bare string. But **no update route was
-found** — `PATCH /{id}` answers `-1600`, `PUT /{id}` answers `-1001 DHCP
-Reservation is not exist, please check path param` even with a correct id — and,
-worse, **`DELETE /{id}` returns `errorCode: 0` while deleting nothing.** That
-was confirmed repeatedly against a live controller, including re-reading the
-list after a delay; `?netId=`, `{netId}/{id}`, `?ids=`, `/batch`,
-`/batch-delete`, `/remove` and a body-carrying `DELETE` were all tried.
+⚠️ **Some item paths are keyed on a natural key, not the id — and a wrong key
+still answers `0`.** DHCP reservations (`omada_dhcp_reservation`) are addressed
+by **MAC**: `PUT`/`DELETE /setting/service/dhcp/{mac}`. Passing the object's
+`id` there returns `errorCode: 0` and does nothing at all, so a resource built
+on the id looks like it works while orphaning objects — this cost a real
+throwaway on the dev controller before the UI capture showed the MAC in the
+path. When a delete "succeeds", confirm by re-reading the list; that resource's
+`Delete` does exactly that and raises an error if the object survives.
 
-A resource built on that would be actively harmful: Terraform would take the
-`0` at face value, drop the object from state, and orphan it on the controller
-— state and reality diverging silently, which is worse than having no resource
-at all. **Do not ship it until the UI's own edit and delete requests have been
-captured** and the real routes are known.
-
-Fields (from a live create): writable `netId`, `mac`, `ip`, `status`, `name`,
-`options`, `type`; derived and never to be written back: `netName`,
-`clientName`, `serverName`, `serverType`, `serverMac`, `abnormal`,
-`showingType`, `existOptions`. Note `exportToIpMacBinding` is **forced to
-`true`** by the controller regardless of what is sent, so it cannot be modelled
-as a plain writable bool.
+Related trap on the same endpoint: `exportToIpMacBinding` is **forced to true**
+by the controller regardless of what is sent, so it is modelled `Computed`
+(reported, not managed) rather than as a writable bool.
 
 ⚠️ **`radiusPwd` must be write-only.** The controller returns the RADIUS shared
 secret in **plaintext** on read, exactly like the WiFi `psk`. Per §2.6 that means

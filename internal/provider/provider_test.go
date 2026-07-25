@@ -1088,6 +1088,74 @@ func newMockController(t *testing.T) *httptest.Server {
 		}
 	})
 
+	// DHCP reservations. The trap this reproduces is that the item path is
+	// keyed on the **MAC**, not the id, and the controller answers 0 for a key
+	// that matched nothing — so a provider keyed on the id would look like it
+	// worked while doing nothing at all.
+	reservations := map[string]map[string]any{} // by MAC
+	resNext := 1
+	const dhcpBase = "/abc123/api/v2/sites/site-1/setting/service/dhcp"
+	mux.HandleFunc(dhcpBase, func(w http.ResponseWriter, r *http.Request) {
+		if !requireToken(w, r) {
+			return
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		switch r.Method {
+		case http.MethodPost:
+			var in map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&in)
+			mac, _ := in["mac"].(string)
+			in["id"] = fmt.Sprintf("res-%d", resNext)
+			resNext++
+			in["netName"] = "SERVICE"
+			// Forced on by the controller no matter what was sent.
+			in["exportToIpMacBinding"] = true
+			reservations[mac] = in
+			writeEnvelope(w, 0, "", in["id"])
+		default: // GET
+			data := make([]map[string]any, 0, len(reservations))
+			for _, d := range reservations {
+				data = append(data, d)
+			}
+			writeEnvelope(w, 0, "", map[string]any{
+				"totalRows": len(data), "currentPage": 1, "currentSize": 100, "data": data,
+			})
+		}
+	})
+	mux.HandleFunc(dhcpBase+"/", func(w http.ResponseWriter, r *http.Request) {
+		if !requireToken(w, r) {
+			return
+		}
+		key := strings.TrimPrefix(r.URL.Path, dhcpBase+"/")
+		mu.Lock()
+		defer mu.Unlock()
+		switch r.Method {
+		case http.MethodDelete:
+			// Note: success regardless of whether the key matched, exactly
+			// like the controller.
+			delete(reservations, key)
+			writeEnvelope(w, 0, "", nil)
+		case http.MethodPut:
+			cur, ok := reservations[key]
+			if !ok {
+				writeEnvelope(w, -1001, "DHCP Reservation is not exist, please check path param.", nil)
+				return
+			}
+			var in map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&in)
+			in["id"] = cur["id"]
+			in["netName"] = "SERVICE"
+			in["exportToIpMacBinding"] = true
+			delete(reservations, key)
+			mac, _ := in["mac"].(string)
+			reservations[mac] = in
+			writeEnvelope(w, 0, "", in)
+		default: // PATCH
+			writeEnvelope(w, -1600, "Unsupported request path.", nil)
+		}
+	})
+
 	mux.HandleFunc("/debug/singletons", func(w http.ResponseWriter, _ *http.Request) {
 		mu.Lock()
 		defer mu.Unlock()
