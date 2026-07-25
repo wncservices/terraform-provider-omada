@@ -169,6 +169,7 @@ preserved via read-modify-write.
 | `omada_portal` | CRUD | live · subset | write-only `password`; bare-array list; PATCH RMW |
 | `omada_vpn` | CRUD | **read live, writes inferred** | see §5.2 |
 | `omada_attack_defense` | R/U (singleton) | live · subset | flood defense / packet anomaly / IP options; update is `PUT` |
+| `omada_ips_whitelist` | C/R/D | live | read at `/grid/`, write one level up; no update verb |
 | `omada_ips` | R/U (singleton) | live | update is `PATCH`; `*Categories` are controller-owned reference data |
 | `omada_alg` | R/U (singleton) | live | FTP/H.323/PPTP/IPsec/SIP ALGs; update is `PUT` |
 | `omada_ssh_settings` | R/U (singleton) | live | device SSH; update is `PUT` |
@@ -406,36 +407,34 @@ secret in **plaintext** on read, exactly like the WiFi `psk`. Per §2.6 that mea
 it is never read into state — model it write-only, deep-merge it on update, and
 add it to `ImportStateVerifyIgnore`.
 
-### 5.8a IPS allow/block lists — read paths known, write shape not
+### 5.8a IPS allow/block lists — whitelist shipped, blacklist read-only
 
-`omada_ips` covers the IPS *settings*. The per-entry lists beside them are
-mapped but **not implemented**, because the create payload could not be
-recovered without a UI capture:
+The whitelist ships as `omada_ips_whitelist`. Its contract has the asymmetry
+worth remembering:
 
 | Call | Result |
 |---|---|
-| `GET /setting/ips/grid/blacklist` | paginated envelope, empty on the dev site |
-| `GET /setting/ips/grid/whitelist` | paginated envelope, empty on the dev site |
-| `POST /setting/ips/whitelist` | **real route** — answers `-1001`, so it exists |
-| `POST /setting/ips/blacklist` | `-1600` — no such route |
-| `PUT`/`PATCH`/`DELETE /setting/ips/whitelist` | `-1600` |
+| `GET /setting/ips/grid/whitelist` | list (paginated). The `/grid/` path is a **read-only view** for the UI table — anything but GET is `-1600` |
+| `POST /setting/ips/whitelist` | create. Null result; resolve the new id by matching the entry's fields |
+| `DELETE /setting/ips/whitelist/{id}` | delete |
+| `PUT`/`PATCH` anywhere | `-1600` — there is no update verb, and nothing to update |
 
-Two things follow. The `/grid/` paths look like read-only views for the UI
-table — `POST` to them is `-1600`. And only the **whitelist** is writable at
-all, which fits the feature: the engine populates the blacklist as it blocks
-things, and the practitioner whitelists false positives.
+An entry is `direction` + `trafficType` + `trafficSource` and nothing else, so
+every field is part of its identity and the resource replaces on any change.
+`trafficType: 1` pairs with a network id.
 
-Unlike `otonats`, whose validation errors named the missing fields outright
-("External Ip", "Wan ports"), this endpoint answers a flat
-`-1001 Invalid request parameters.` to everything. Ten candidate shapes were
-tried — `ip`, `name`+`ip`, `type`+`value`, `signatureId`, `sid`, `category`,
-`ipList`, `entries`, `name`+`description`+`ip`, `mac` — all identical, so there
-is nothing to iterate against and no list contents to infer a shape from.
+**How the shape was found matters for the next endpoint like it.** Probing was
+a dead end: this endpoint answers a flat `-1001 Invalid request parameters.` to
+everything, naming no fields, and ten candidate shapes built around `ip`,
+`signatureId`, `category` and friends were all indistinguishable — because the
+real vocabulary (traffic direction/source/type) shares no words with any of
+them. Only a UI capture of the `POST` body settled it. When an endpoint's
+errors name nothing and its list is empty, stop guessing and capture.
 
-**To implement:** capture the UI's `POST` when adding an IPS whitelist entry.
-That gives the field names outright. A read-only data source over the two grids
-is possible today, but both lists are empty on the dev site, so the item shape
-would be guesswork too.
+The **blacklist** (`/setting/ips/grid/blacklist`) has no write route at all
+(`POST` → `-1600`), consistent with the engine populating it as it blocks and
+the practitioner whitelisting false positives. A read-only data source over it
+is possible; it was empty on the dev site, so the item shape is still unknown.
 
 ### 5.9 NAT gaps — disable-NAT shipped, one-to-one NAT blocked by hardware
 

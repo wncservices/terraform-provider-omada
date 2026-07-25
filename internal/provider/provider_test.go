@@ -1232,6 +1232,65 @@ func newMockController(t *testing.T) *httptest.Server {
 		_ = json.NewEncoder(w).Encode(radiusProfiles)
 	})
 
+	// IPS whitelist. The asymmetric paths are the point: the list is served
+	// from a /grid/ view that only answers GET, while create and delete live
+	// one level up at /setting/ips/whitelist.
+	ipsWhitelist := map[string]map[string]any{}
+	ipsNext := 1
+	const ipsList = "/abc123/api/v2/sites/site-1/setting/ips/grid/whitelist"
+	const ipsItem = "/abc123/api/v2/sites/site-1/setting/ips/whitelist"
+	mux.HandleFunc(ipsList, func(w http.ResponseWriter, r *http.Request) {
+		if !requireToken(w, r) {
+			return
+		}
+		if r.Method != http.MethodGet {
+			writeEnvelope(w, -1600, "Unsupported request path.", nil)
+			return
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		data := make([]map[string]any, 0, len(ipsWhitelist))
+		for _, e := range ipsWhitelist {
+			data = append(data, e)
+		}
+		writeEnvelope(w, 0, "", map[string]any{
+			"totalRows": len(data), "currentPage": 1, "currentSize": 100, "data": data,
+		})
+	})
+	mux.HandleFunc(ipsItem, func(w http.ResponseWriter, r *http.Request) {
+		if !requireToken(w, r) {
+			return
+		}
+		if r.Method != http.MethodPost {
+			writeEnvelope(w, -1600, "Unsupported request path.", nil)
+			return
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		var in map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&in)
+		id := fmt.Sprintf("ipsw-%d", ipsNext)
+		ipsNext++
+		in["id"] = id
+		ipsWhitelist[id] = in
+		// Null result, like the controller: the client resolves by matching.
+		writeEnvelope(w, 0, "", nil)
+	})
+	mux.HandleFunc(ipsItem+"/", func(w http.ResponseWriter, r *http.Request) {
+		if !requireToken(w, r) {
+			return
+		}
+		id := strings.TrimPrefix(r.URL.Path, ipsItem+"/")
+		mu.Lock()
+		defer mu.Unlock()
+		if r.Method != http.MethodDelete {
+			writeEnvelope(w, -1600, "Unsupported request path.", nil)
+			return
+		}
+		delete(ipsWhitelist, id)
+		writeEnvelope(w, 0, "", nil)
+	})
+
 	mux.HandleFunc("/debug/singletons", func(w http.ResponseWriter, _ *http.Request) {
 		mu.Lock()
 		defer mu.Unlock()
