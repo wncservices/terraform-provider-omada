@@ -9,7 +9,7 @@ shapes are derived from the UI. This is deliberate: it's the only surface with f
 config coverage, including gateway/router settings that other providers omit.
 
 > **Status: released.** `v0.4.0` is the current release on the Terraform Registry —
-> **21 resources** (table below) + 6 data sources, each with acceptance tests in
+> **22 resources** (table below) + 6 data sources, each with acceptance tests in
 > CI. Verified against a live Omada v6.2 controller.
 
 **Contributing?** See [`DESIGN.md`](DESIGN.md) for the architecture, the coverage
@@ -39,6 +39,7 @@ without reading the whole repo first.
 | `omada_ssh_settings` | singleton, read/update verified live ✅; SSH to managed devices |
 | `omada_dot1x` | singleton, read/update verified live ✅; site-wide 802.1X (RADIUS profile not yet modelled) |
 | `omada_time_range` | reusable schedule profile, full CRUD verified live ✅; referenced by SSID/rule schedules |
+| `omada_radius_profile` | full CRUD verified live ✅; `shared_secret` is a true Terraform **write-only** attribute (never persisted) |
 | `omada_dhcp_reservation` | full CRUD verified live ✅; **keyed on the MAC, not the id**; MAC spellings compare equivalently |
 | `omada_disable_nat` | route a LAN without NAT; list/create/update verified live ✅ (**delete inferred**); one rule per WAN port |
 | `omada_site_settings` | singleton, read/update verified live ✅; ~45 fields across LED, mesh, roaming, band steering, airtime fairness, LLDP, auto-upgrade, alerts, remote logging, speed test, RF beacon; `deviceAccount` never touched |

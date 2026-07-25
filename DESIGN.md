@@ -114,10 +114,20 @@ differs per spec and one Go type cannot cover them all.
 These are enforced by tests and/or matter for safety. Read before touching the
 relevant resource.
 
-- **`psk` is write-only.** The WiFi pre-shared key is never read into state and
-  never written to any file. (The controller's SSID list endpoint returns keys in
-  **plaintext** — that is exactly why we refuse to store them.) Updates deep-merge
-  `pskSetting` so the key survives an update that doesn't set a new one.
+- **Secrets the controller returns in plaintext are never read back.** The SSID
+  list returns the WiFi `psk` in plaintext and RADIUS profiles return
+  `authServer[].radiusPwd` the same way, so neither is ever decoded into state
+  from the API, and updates preserve the stored value when a new one isn't
+  supplied (`pskSetting` deep-merge; `carryRadiusSecrets`).
+- **Not reading a secret back is only half the job.** Terraform persists
+  *configured* values in state regardless of what the provider reads, so
+  `Sensitive: true` alone still writes the secret to the state file. Only
+  `WriteOnly: true` (Terraform ≥ 1.11, framework ≥ 1.14) keeps it out of state
+  and plan entirely. `omada_radius_profile.shared_secret` uses it, and an
+  acceptance test greps the whole state for the secret to prove it.
+  ⚠️ `omada_wireless_network.psk` and `omada_portal.password` are **still only
+  `Sensitive`**, so their configured values *do* land in state despite what
+  their descriptions imply — converting them is a small, worthwhile follow-up.
 - **`deviceAccount` is never sent.** Site-settings updates must never include the
   device-credential object. A mock test asserts it survives untouched.
 - **Null is not false.** Some controller fields come back `null`; writing `false`
@@ -157,6 +167,7 @@ preserved via read-modify-write.
 | `omada_ssh_settings` | R/U (singleton) | live | device SSH; update is `PUT` |
 | `omada_dot1x` | R/U (singleton) | live | site-wide 802.1X; update is `PATCH` |
 | `omada_time_range` | CRUD | live | schedule profile; create returns `profileId`; list has no `totalRows` |
+| `omada_radius_profile` | CRUD | live | bare-array list; `radiusPwd` write-only, carried across updates |
 | `omada_dhcp_reservation` | CRUD | live | item path keyed on **MAC**; unknown key still answers 0 |
 | `omada_disable_nat` | CRUD | live (delete inferred) | plural list / singular item paths; update is `PUT`; one rule per WAN port |
 | `omada_site_settings` | R/U (singleton) | live · subset | ~45 fields; large object |

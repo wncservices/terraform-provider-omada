@@ -1156,6 +1156,64 @@ func newMockController(t *testing.T) *httptest.Server {
 		}
 	})
 
+	// RADIUS profiles. Like /setting/portals this is a BARE ARRAY, not a
+	// paginated envelope. The secret at authServer[].radiusPwd is stored here
+	// so the test can assert it reaches the controller, survives an update
+	// that does not re-supply it, and never reaches Terraform state.
+	radiusProfiles := map[string]map[string]any{}
+	radNext := 1
+	const radBase = "/abc123/api/v2/sites/site-1/setting/radiusProfiles"
+	mux.HandleFunc(radBase, func(w http.ResponseWriter, r *http.Request) {
+		if !requireToken(w, r) {
+			return
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		switch r.Method {
+		case http.MethodPost:
+			var in map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&in)
+			id := fmt.Sprintf("rad-%d", radNext)
+			radNext++
+			in["radiusProfileId"] = id
+			in["builtInServer"] = false
+			radiusProfiles[id] = in
+			writeEnvelope(w, 0, "", map[string]any{"radiusProfileId": id})
+		default: // GET — bare array
+			data := make([]map[string]any, 0, len(radiusProfiles))
+			for _, p := range radiusProfiles {
+				data = append(data, p)
+			}
+			writeEnvelope(w, 0, "", data)
+		}
+	})
+	mux.HandleFunc(radBase+"/", func(w http.ResponseWriter, r *http.Request) {
+		if !requireToken(w, r) {
+			return
+		}
+		id := strings.TrimPrefix(r.URL.Path, radBase+"/")
+		mu.Lock()
+		defer mu.Unlock()
+		switch r.Method {
+		case http.MethodDelete:
+			delete(radiusProfiles, id)
+			writeEnvelope(w, 0, "", nil)
+		case http.MethodPatch:
+			var in map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&in)
+			in["radiusProfileId"] = id
+			radiusProfiles[id] = in
+			writeEnvelope(w, 0, "", in)
+		default:
+			writeEnvelope(w, -1600, "Unsupported request path.", nil)
+		}
+	})
+	mux.HandleFunc("/debug/radius", func(w http.ResponseWriter, _ *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		_ = json.NewEncoder(w).Encode(radiusProfiles)
+	})
+
 	mux.HandleFunc("/debug/singletons", func(w http.ResponseWriter, _ *http.Request) {
 		mu.Lock()
 		defer mu.Unlock()
