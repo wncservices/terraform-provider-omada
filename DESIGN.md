@@ -470,6 +470,12 @@ run-triggering call was never fired: it re-channels live APs.
   and **GPG-signs** the checksums; the workflow then creates a **draft** release,
   uploads all 16 artifacts, and publishes it. The Terraform Registry ingests it on
   publication. Current line: `v0.5.x`.
+- **Cut releases by pushing a tag, not from the GitHub UI.** The UI creates the
+  tag *and* an empty published release; the tag push then starts the workflow,
+  which used to add a second release object (drafts are not tag-bound), leaving
+  a draft and a published release with the same name. The workflow now clears
+  any pre-existing **empty** release for the tag first — and refuses to touch
+  one that already has assets, so a re-run can never destroy a shipped release.
 - **Why the draft dance:** with GitHub *immutable releases* enabled, a release is
   sealed the moment it is published and then rejects asset uploads with
   `422 Cannot upload assets to an immutable release`. GoReleaser publishes before

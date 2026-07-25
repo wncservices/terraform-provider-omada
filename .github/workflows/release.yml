@@ -58,6 +58,32 @@ jobs:
           cp terraform-registry-manifest.json \
              "dist/terraform-provider-omada_${VERSION}_manifest.json"
 
+          # A release for this tag may already exist. Cutting a release from
+          # the GitHub UI creates the tag *and* an empty published release, and
+          # the tag push then starts this workflow. Draft releases are not
+          # bound to a tag, so `gh release create --draft` does not collide
+          # with it — it just adds a SECOND release object, leaving one draft
+          # and one published release with the same name (seen on v0.6.1).
+          #
+          # `gh release view` cannot disambiguate those, so enumerate through
+          # the API instead and clear every release carrying this tag. Only
+          # ever delete one with no assets: re-running this workflow must never
+          # be able to destroy a release that already shipped.
+          gh api --paginate repos/${GITHUB_REPOSITORY}/releases \
+            --jq ".[] | select(.tag_name == \"$TAG\" or .name == \"$TAG\") | \
+                  \"\(.id) \(.assets | length) \(.draft)\"" \
+            > /tmp/existing-releases || true
+
+          while read -r rel_id asset_count is_draft; do
+            [ -z "${rel_id:-}" ] && continue
+            if [ "$asset_count" -gt 0 ]; then
+              echo "::error::release $rel_id for $TAG already has $asset_count assets; refusing to replace it"
+              exit 1
+            fi
+            echo "removing empty pre-existing release $rel_id (draft=$is_draft)"
+            gh api -X DELETE "repos/${GITHUB_REPOSITORY}/releases/$rel_id"
+          done < /tmp/existing-releases
+
           gh release create "$TAG" --draft --verify-tag --title "$TAG" --generate-notes
 
           gh release upload "$TAG" \
