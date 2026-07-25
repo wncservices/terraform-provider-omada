@@ -114,10 +114,20 @@ differs per spec and one Go type cannot cover them all.
 These are enforced by tests and/or matter for safety. Read before touching the
 relevant resource.
 
-- **`psk` is write-only.** The WiFi pre-shared key is never read into state and
-  never written to any file. (The controller's SSID list endpoint returns keys in
-  **plaintext** — that is exactly why we refuse to store them.) Updates deep-merge
-  `pskSetting` so the key survives an update that doesn't set a new one.
+- **Secrets the controller returns in plaintext are never read back.** The SSID
+  list returns the WiFi `psk` in plaintext and RADIUS profiles return
+  `authServer[].radiusPwd` the same way, so neither is ever decoded into state
+  from the API, and updates preserve the stored value when a new one isn't
+  supplied (`pskSetting` deep-merge; `carryRadiusSecrets`).
+- **Not reading a secret back is only half the job.** Terraform persists
+  *configured* values in state regardless of what the provider reads, so
+  `Sensitive: true` alone still writes the secret to the state file. Only
+  `WriteOnly: true` (Terraform ≥ 1.11, framework ≥ 1.14) keeps it out of state
+  and plan entirely. `omada_radius_profile.shared_secret` uses it, and an
+  acceptance test greps the whole state for the secret to prove it.
+  ⚠️ `omada_wireless_network.psk` and `omada_portal.password` are **still only
+  `Sensitive`**, so their configured values *do* land in state despite what
+  their descriptions imply — converting them is a small, worthwhile follow-up.
 - **`deviceAccount` is never sent.** Site-settings updates must never include the
   device-credential object. A mock test asserts it survives untouched.
 - **Null is not false.** Some controller fields come back `null`; writing `false`
@@ -156,6 +166,10 @@ preserved via read-modify-write.
 | `omada_alg` | R/U (singleton) | live | FTP/H.323/PPTP/IPsec/SIP ALGs; update is `PUT` |
 | `omada_ssh_settings` | R/U (singleton) | live | device SSH; update is `PUT` |
 | `omada_dot1x` | R/U (singleton) | live | site-wide 802.1X; update is `PATCH` |
+| `omada_time_range` | CRUD | live | schedule profile; create returns `profileId`; list has no `totalRows` |
+| `omada_radius_profile` | CRUD | live | bare-array list; `radiusPwd` write-only, carried across updates |
+| `omada_dhcp_reservation` | CRUD | live | item path keyed on **MAC**; unknown key still answers 0 |
+| `omada_disable_nat` | CRUD | live (delete inferred) | plural list / singular item paths; update is `PUT`; one rule per WAN port |
 | `omada_site_settings` | R/U (singleton) | live · subset | ~45 fields; large object |
 | `omada_sites` (data) | R | live | |
 | `omada_networks` (data) | R | live | |
@@ -210,7 +224,13 @@ need only a read-only session:
   brute-force sweep cheap and unambiguous. Watch the casing: paths are
   **camelCase** (`/setting/radiusProfiles`, `/setting/accessControl`,
   `/setting/transmission/portForwardings`) even though a few are all-lower
-  (`/setting/firewall/attackdefense`).
+  (`/setting/firewall/attackdefense`) — **and some are kebab-case and
+  abbreviated**: `/setting/wan-ports`,
+  `/setting/wired-networks/disable-nats`, and one-to-one NAT at
+  `/setting/transmission/otonats` ("oto" = one-to-one). A sweep over
+  camelCase full words alone will miss those entirely, which is exactly how
+  they went unfound for a while. Sweep all three casings, and try
+  abbreviations.
 - **Ask the controller what the gateway supports.**
   `GET /sites/{id}/setting/capacity` returns a feature→bool map (`oneToOneNat`,
   `disableNat`, `customAcl`, `policyRouting`, `ipsec`, …). Use it to tell "this
@@ -361,46 +381,65 @@ are an afternoon each — write a `settingsSpec` and a mock handler.
 | `/setting/transmission/sessionLimits`, `/setting/transmission/bandwidthControls` | — | QoS-ish | |
 | `/setting/transmission/policyRoutings` | — | `omada_policy_route` | paginated list; complements `omada_static_route` |
 
+⚠️ **Some item paths are keyed on a natural key, not the id — and a wrong key
+still answers `0`.** DHCP reservations (`omada_dhcp_reservation`) are addressed
+by **MAC**: `PUT`/`DELETE /setting/service/dhcp/{mac}`. Passing the object's
+`id` there returns `errorCode: 0` and does nothing at all, so a resource built
+on the id looks like it works while orphaning objects — this cost a real
+throwaway on the dev controller before the UI capture showed the MAC in the
+path. When a delete "succeeds", confirm by re-reading the list; that resource's
+`Delete` does exactly that and raises an error if the object survives.
+
+Related trap on the same endpoint: `exportToIpMacBinding` is **forced to true**
+by the controller regardless of what is sent, so it is modelled `Computed`
+(reported, not managed) rather than as a writable bool.
+
 ⚠️ **`radiusPwd` must be write-only.** The controller returns the RADIUS shared
 secret in **plaintext** on read, exactly like the WiFi `psk`. Per §2.6 that means
 it is never read into state — model it write-only, deep-merge it on update, and
 add it to `ImportStateVerifyIgnore`.
 
-### 5.9 Wanted but *not located* — needs a UI capture
+### 5.9 NAT gaps — disable-NAT shipped, one-to-one NAT blocked by hardware
 
-Probing found no path for these, so they need step 1 of the recipe (browser
-devtools against the UI) rather than more guessing:
+Both paths came from UI captures; probing could never have found them because
+they are kebab-case and abbreviated (see §4).
 
-- **One-to-One NAT** and **Disable NAT**. `/setting/capacity` reports
-  `oneToOneNat: true` and `disableNat: true` on the ER707-M2, so the gateway
-  supports them and an endpoint must exist — but nothing was found under
-  `/setting/transmission/*`, `/setting/firewall/*`, `/setting/nat/*` or the WAN
-  document across ~40 name spellings each. DMZ and port triggering were equally
-  absent, which suggests this whole group lives somewhere unguessed. One-to-One
-  NAT also needs multiple WAN IPs (`supportWanMultipleIp`), so the page may only
-  materialise once the WAN is configured for it.
-- **WLAN optimization** — endpoints found, but it is an **action, not config**.
-  It lives outside `/setting/*` entirely, under `/sites/{id}/rfPlanning`:
+**Disable NAT — shipped** as `omada_disable_nat`. The contract is asymmetric
+and worth stating plainly:
 
-  | Call | Behaviour |
-  |---|---|
-  | `GET /rfPlanning` | returns the parameter document: `channelDeployEnable*`, `powerAdjustEnable*`, `chanWidth{2,5,6}g`, `mode`, `excludeAps`, `scheduleEnable`, `occurrence{timingType,hour,minute}` |
-  | `GET /rfPlanning/result` | `{"status": N}` — the state of an optimization *run* |
-  | `PUT /rfPlanning/config` | a real route (bogus siblings answer `-1600`) that **validates** the full document — partial or wrapped bodies are rejected `-1001`, and `mode: 1` is rejected — but **nothing written through it is reflected by `GET /rfPlanning`** |
+| Operation | Call |
+|---|---|
+| list | `GET /setting/wired-networks/disable-**nats**` (plural, paginated) |
+| create | `POST /setting/wired-networks/disable-**nat**` (singular; no object echoed — resolve by name) |
+| update | `PUT /setting/wired-networks/disable-nat/{id}` (`PATCH` → `-1600`) |
+| delete | `DELETE /setting/wired-networks/disable-nat/{id}` — **inferred**, not exercised |
 
-  Every field tested (`excludeAps`, `chanWidth2g`, `channelDeployEnable6g`,
-  `occurrence.minute`) round-tripped as accepted-but-unpersisted. So
-  `/rfPlanning/config` appears to *stage* parameters for an optimization run
-  that a separate call then starts — a wizard, not durable state.
+Fields: `name`, `interface` (WAN interface id, `1_<hex>`), `lanList` (network
+ids), `status`. The controller allows **one rule per WAN port** (`-34247`
+otherwise), which is also why delete is unverified: the dev site's single WAN
+already held the one permitted rule, so no throwaway could be created. Create
+and update were confirmed against that existing rule with `status:false`
+preserved throughout — a disabled rule cannot affect traffic.
 
-  **This is a poor fit for a Terraform resource** as it stands: Terraform
-  reconciles desired state, and there is no state here to reconcile, only a job
-  to trigger. Before building anything, capture the UI's **Save** and **Run**
-  requests from Tools → WLAN Optimization to find whether any of it persists.
-  If only the *schedule* persists, that part alone could be a small resource.
+**One-to-one NAT — field set complete, unusable on this hardware.**
+`POST /setting/transmission/otonats` takes `name`, `status`, `externalIp`,
+`internalIp`, `dmz` and **`interfaceIds`** (a list of `1_<hex>` WAN interface
+ids). That last name was the hold-up; it was confirmed when the error changed
+from `-1001 Wan ports should not be null` to:
 
-  (Note: the run-triggering call was deliberately never fired during this
-  investigation — starting an optimization re-channels live APs.)
+```
+-34282 Please select a WAN interface that has the Static IP connection type configured.
+```
+
+Which is also the blocker: **one-to-one NAT requires a WAN on a static-IP
+connection**, and the dev site's WAN is not, so create/update/delete cannot be
+exercised there at all (consistent with `supportGeneralDialingTypeWan: false`
+on the list response). Deliberately **not** shipped as a resource on that
+basis — a NAT write path nobody can test is how you take someone's internet
+down. Anyone with a static-IP WAN can finish it from the field set above.
+
+All probing used a TEST-NET-3 external address (`203.0.113.5`) so that no
+functional mapping could ever be created, and the list stayed empty throughout.
 
 ### 5.10 Already covered — don't re-implement
 
@@ -412,6 +451,16 @@ from the resource names:
 - **Multicast.** `omada_network` carries `igmp_snoop_enable`, `mld_snoop_enable`
   and `fast_leave_enable`; `omada_wireless_network` carries the
   `multicast_*` family.
+
+### 5.11 WLAN optimization — an action, not config
+
+Endpoints exist under `/sites/{id}/rfPlanning` (see the table below), but
+`PUT /rfPlanning/config` validates the document and **persists nothing**, and
+`/rfPlanning/result` returns a job status — so this is a wizard, not durable
+state, and a poor fit for a Terraform resource. Full detail is in the git
+history of this file; the short version is that it needs a UI capture of Save
+to establish whether any of it (probably only the schedule) persists. The
+run-triggering call was never fired: it re-channels live APs.
 
 ---
 

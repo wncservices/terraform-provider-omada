@@ -956,6 +956,264 @@ func newMockController(t *testing.T) *httptest.Server {
 			writeEnvelope(w, 0, "", out)
 		})
 	}
+	// Time-range profiles. Two controller quirks are emulated because the client
+	// depends on both: the list envelope carries `data` but **no** `totalRows`
+	// (the endpoint does not paginate), and create answers with the new id under
+	// `profileId` rather than echoing the object.
+	timeRanges := map[string]map[string]any{}
+	trNext := 1
+	const trBase = "/abc123/api/v2/sites/site-1/setting/profiles/timeranges"
+	mux.HandleFunc(trBase, func(w http.ResponseWriter, r *http.Request) {
+		if !requireToken(w, r) {
+			return
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		switch r.Method {
+		case http.MethodPost:
+			var in map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&in)
+			id := fmt.Sprintf("tr-%d", trNext)
+			trNext++
+			in["id"] = id
+			// The controller stamps a ruleId onto each slot; the provider must
+			// tolerate reading it back without diffing on it.
+			if slots, ok := in["timeList"].([]any); ok {
+				for i, sl := range slots {
+					if m, ok := sl.(map[string]any); ok {
+						m["ruleId"] = float64(1000 + i)
+					}
+				}
+			}
+			timeRanges[id] = in
+			writeEnvelope(w, 0, "", map[string]any{"profileId": id})
+		default: // GET
+			data := make([]map[string]any, 0, len(timeRanges))
+			for _, t := range timeRanges {
+				data = append(data, t)
+			}
+			writeEnvelope(w, 0, "", map[string]any{"data": data})
+		}
+	})
+	mux.HandleFunc(trBase+"/", func(w http.ResponseWriter, r *http.Request) {
+		if !requireToken(w, r) {
+			return
+		}
+		id := strings.TrimPrefix(r.URL.Path, trBase+"/")
+		mu.Lock()
+		defer mu.Unlock()
+		switch r.Method {
+		case http.MethodDelete:
+			delete(timeRanges, id)
+			writeEnvelope(w, 0, "", nil)
+		case http.MethodPatch:
+			var in map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&in)
+			in["id"] = id
+			timeRanges[id] = in
+			writeEnvelope(w, 0, "", in)
+		default:
+			writeEnvelope(w, -1600, "Unsupported request path.", nil)
+		}
+	})
+
+	// Disable-NAT rules. The asymmetric paths are the point of this handler:
+	// the collection is plural (disable-nats) while create and the item path
+	// are singular (disable-nat, disable-nat/{id}), and update is PUT — PATCH
+	// is rejected, exactly as the controller does.
+	disableNats := map[string]map[string]any{}
+	dnNext := 1
+	const dnList = "/abc123/api/v2/sites/site-1/setting/wired-networks/disable-nats"
+	const dnItem = "/abc123/api/v2/sites/site-1/setting/wired-networks/disable-nat"
+	mux.HandleFunc(dnList, func(w http.ResponseWriter, r *http.Request) {
+		if !requireToken(w, r) {
+			return
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		data := make([]map[string]any, 0, len(disableNats))
+		for _, d := range disableNats {
+			data = append(data, d)
+		}
+		writeEnvelope(w, 0, "", map[string]any{
+			"totalRows": len(data), "currentPage": 1, "currentSize": 100, "data": data,
+		})
+	})
+	mux.HandleFunc(dnItem, func(w http.ResponseWriter, r *http.Request) {
+		if !requireToken(w, r) {
+			return
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		if r.Method != http.MethodPost {
+			writeEnvelope(w, -1600, "Unsupported request path.", nil)
+			return
+		}
+		var in map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&in)
+		iface, _ := in["interface"].(string)
+		// One rule per WAN port, like the real controller.
+		for _, d := range disableNats {
+			if cur, _ := d["interface"].(string); cur == iface {
+				writeEnvelope(w, -34247, "Only one Disable NAT rule is allowed for one WAN port.", nil)
+				return
+			}
+		}
+		id := fmt.Sprintf("dn-%d", dnNext)
+		dnNext++
+		in["id"] = id
+		disableNats[id] = in
+		// The controller does not echo the object; the client resolves by name.
+		writeEnvelope(w, 0, "", nil)
+	})
+	mux.HandleFunc(dnItem+"/", func(w http.ResponseWriter, r *http.Request) {
+		if !requireToken(w, r) {
+			return
+		}
+		id := strings.TrimPrefix(r.URL.Path, dnItem+"/")
+		mu.Lock()
+		defer mu.Unlock()
+		switch r.Method {
+		case http.MethodDelete:
+			delete(disableNats, id)
+			writeEnvelope(w, 0, "", nil)
+		case http.MethodPut:
+			var in map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&in)
+			in["id"] = id
+			disableNats[id] = in
+			writeEnvelope(w, 0, "", in)
+		default: // PATCH and anything else
+			writeEnvelope(w, -1600, "Unsupported request path.", nil)
+		}
+	})
+
+	// DHCP reservations. The trap this reproduces is that the item path is
+	// keyed on the **MAC**, not the id, and the controller answers 0 for a key
+	// that matched nothing — so a provider keyed on the id would look like it
+	// worked while doing nothing at all.
+	reservations := map[string]map[string]any{} // by MAC
+	resNext := 1
+	const dhcpBase = "/abc123/api/v2/sites/site-1/setting/service/dhcp"
+	mux.HandleFunc(dhcpBase, func(w http.ResponseWriter, r *http.Request) {
+		if !requireToken(w, r) {
+			return
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		switch r.Method {
+		case http.MethodPost:
+			var in map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&in)
+			mac, _ := in["mac"].(string)
+			in["id"] = fmt.Sprintf("res-%d", resNext)
+			resNext++
+			in["netName"] = "SERVICE"
+			// Forced on by the controller no matter what was sent.
+			in["exportToIpMacBinding"] = true
+			reservations[mac] = in
+			writeEnvelope(w, 0, "", in["id"])
+		default: // GET
+			data := make([]map[string]any, 0, len(reservations))
+			for _, d := range reservations {
+				data = append(data, d)
+			}
+			writeEnvelope(w, 0, "", map[string]any{
+				"totalRows": len(data), "currentPage": 1, "currentSize": 100, "data": data,
+			})
+		}
+	})
+	mux.HandleFunc(dhcpBase+"/", func(w http.ResponseWriter, r *http.Request) {
+		if !requireToken(w, r) {
+			return
+		}
+		key := strings.TrimPrefix(r.URL.Path, dhcpBase+"/")
+		mu.Lock()
+		defer mu.Unlock()
+		switch r.Method {
+		case http.MethodDelete:
+			// Note: success regardless of whether the key matched, exactly
+			// like the controller.
+			delete(reservations, key)
+			writeEnvelope(w, 0, "", nil)
+		case http.MethodPut:
+			cur, ok := reservations[key]
+			if !ok {
+				writeEnvelope(w, -1001, "DHCP Reservation is not exist, please check path param.", nil)
+				return
+			}
+			var in map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&in)
+			in["id"] = cur["id"]
+			in["netName"] = "SERVICE"
+			in["exportToIpMacBinding"] = true
+			delete(reservations, key)
+			mac, _ := in["mac"].(string)
+			reservations[mac] = in
+			writeEnvelope(w, 0, "", in)
+		default: // PATCH
+			writeEnvelope(w, -1600, "Unsupported request path.", nil)
+		}
+	})
+
+	// RADIUS profiles. Like /setting/portals this is a BARE ARRAY, not a
+	// paginated envelope. The secret at authServer[].radiusPwd is stored here
+	// so the test can assert it reaches the controller, survives an update
+	// that does not re-supply it, and never reaches Terraform state.
+	radiusProfiles := map[string]map[string]any{}
+	radNext := 1
+	const radBase = "/abc123/api/v2/sites/site-1/setting/radiusProfiles"
+	mux.HandleFunc(radBase, func(w http.ResponseWriter, r *http.Request) {
+		if !requireToken(w, r) {
+			return
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		switch r.Method {
+		case http.MethodPost:
+			var in map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&in)
+			id := fmt.Sprintf("rad-%d", radNext)
+			radNext++
+			in["radiusProfileId"] = id
+			in["builtInServer"] = false
+			radiusProfiles[id] = in
+			writeEnvelope(w, 0, "", map[string]any{"radiusProfileId": id})
+		default: // GET — bare array
+			data := make([]map[string]any, 0, len(radiusProfiles))
+			for _, p := range radiusProfiles {
+				data = append(data, p)
+			}
+			writeEnvelope(w, 0, "", data)
+		}
+	})
+	mux.HandleFunc(radBase+"/", func(w http.ResponseWriter, r *http.Request) {
+		if !requireToken(w, r) {
+			return
+		}
+		id := strings.TrimPrefix(r.URL.Path, radBase+"/")
+		mu.Lock()
+		defer mu.Unlock()
+		switch r.Method {
+		case http.MethodDelete:
+			delete(radiusProfiles, id)
+			writeEnvelope(w, 0, "", nil)
+		case http.MethodPatch:
+			var in map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&in)
+			in["radiusProfileId"] = id
+			radiusProfiles[id] = in
+			writeEnvelope(w, 0, "", in)
+		default:
+			writeEnvelope(w, -1600, "Unsupported request path.", nil)
+		}
+	})
+	mux.HandleFunc("/debug/radius", func(w http.ResponseWriter, _ *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		_ = json.NewEncoder(w).Encode(radiusProfiles)
+	})
+
 	mux.HandleFunc("/debug/singletons", func(w http.ResponseWriter, _ *http.Request) {
 		mu.Lock()
 		defer mu.Unlock()

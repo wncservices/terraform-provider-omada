@@ -157,6 +157,10 @@ func (p *OmadaProvider) Resources(_ context.Context) []func() resource.Resource 
 		NewALGResource,
 		NewSSHSettingsResource,
 		NewDot1XResource,
+		NewTimeRangeResource,
+		NewDisableNATResource,
+		NewDHCPReservationResource,
+		NewRadiusProfileResource,
 	}
 }
 
