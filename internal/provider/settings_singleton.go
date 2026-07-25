@@ -41,7 +41,15 @@ const (
 	kindBool settingKind = iota
 	kindInt
 	kindIntList
+	// kindIntListRO is reference data the controller owns: reported as a
+	// Computed attribute and never written back. The IPS endpoint returns the
+	// category set each protection level covers alongside the real settings,
+	// and those lists are descriptive, not configuration.
+	kindIntListRO
 )
+
+// readOnly reports whether a kind is controller-owned and must not be sent.
+func (k settingKind) readOnly() bool { return k == kindIntListRO }
 
 // settingField maps one controller JSON key to one Terraform attribute.
 type settingField struct {
@@ -133,10 +141,10 @@ func (r *settingsResource) Schema(_ context.Context, _ resource.SchemaRequest, r
 				Optional: true, Computed: true, MarkdownDescription: f.desc,
 				PlanModifiers: []planmodifier.Int64{int64planmodifier.UseStateForUnknown()},
 			}
-		case kindIntList:
+		case kindIntList, kindIntListRO:
 			attrs[f.attr] = schema.ListAttribute{
 				ElementType: types.Int64Type,
-				Optional:    true, Computed: true, MarkdownDescription: f.desc,
+				Optional:    !f.kind.readOnly(), Computed: true, MarkdownDescription: f.desc,
 				PlanModifiers: []planmodifier.List{listplanmodifier.UseStateForUnknown()},
 			}
 		}
@@ -161,6 +169,9 @@ func (r *settingsResource) siteName(ctx context.Context, src attrGetter) string 
 func (r *settingsResource) fieldsFrom(ctx context.Context, src attrGetter, diags *diag.Diagnostics) map[string]any {
 	out := map[string]any{}
 	for _, f := range r.spec.fields {
+		if f.kind.readOnly() {
+			continue // controller-owned; reported, never written
+		}
 		switch f.kind {
 		case kindBool:
 			var v types.Bool
@@ -218,7 +229,7 @@ func (r *settingsResource) refresh(ctx context.Context, doc map[string]any, dst 
 				v = types.Int64Value(int64(n))
 			}
 			diags.Append(dst.SetAttribute(ctx, path.Root(f.attr), v)...)
-		case kindIntList:
+		case kindIntList, kindIntListRO:
 			items, _ := raw.([]any)
 			vals := make([]int, 0, len(items))
 			for _, it := range items {

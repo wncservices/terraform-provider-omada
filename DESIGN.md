@@ -100,6 +100,12 @@ Two behaviours are baked in because every one of these endpoints shares them:
   `support*` / `exist*` capability flags the UI uses to decide what to render.
   These must be stripped before writing back; `controllerOwnedKey` does it, and a
   mock handler fails the test if any leaks into a write.
+- **A document can mix settings with reference data.** `/setting/ips` returns
+  `lowCategories` / `mediumCategories` / `highCategories` / `allCategories`
+  describing what each protection level covers. Those are not configuration:
+  the controller keeps them whether or not they are sent. Declare such keys in
+  the `SettingDoc`'s `ReadOnlyKeys` so the read-modify-write drops them, and
+  model them with `kindIntListRO` so they are reported as Computed-only.
 - **The update verb varies.** `/setting/ssh`, `/setting/transmission/alg` and
   `/setting/firewall/attackdefense` reject `PATCH` with `-1600` and need `PUT`;
   `/setting/dot1x` and `/setting/accessControl` are the reverse. Each `SettingDoc`
@@ -163,6 +169,7 @@ preserved via read-modify-write.
 | `omada_portal` | CRUD | live · subset | write-only `password`; bare-array list; PATCH RMW |
 | `omada_vpn` | CRUD | **read live, writes inferred** | see §5.2 |
 | `omada_attack_defense` | R/U (singleton) | live · subset | flood defense / packet anomaly / IP options; update is `PUT` |
+| `omada_ips` | R/U (singleton) | live | update is `PATCH`; `*Categories` are controller-owned reference data |
 | `omada_alg` | R/U (singleton) | live | FTP/H.323/PPTP/IPsec/SIP ALGs; update is `PUT` |
 | `omada_ssh_settings` | R/U (singleton) | live | device SSH; update is `PUT` |
 | `omada_dot1x` | R/U (singleton) | live | site-wide 802.1X; update is `PATCH` |

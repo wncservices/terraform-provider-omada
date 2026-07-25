@@ -33,6 +33,12 @@ type SettingDoc struct {
 	Path string
 	// Verb is the confirmed update method (http.MethodPut or http.MethodPatch).
 	Verb string
+	// ReadOnlyKeys are document-specific keys the controller owns, beyond the
+	// generic `resource` / `support*` / `exist*` metadata. They are dropped
+	// before an update so the provider never writes back data it does not
+	// manage. Confirmed safe on hardware: PATCHing only the writable subset is
+	// accepted and leaves these untouched.
+	ReadOnlyKeys []string
 }
 
 // The singleton settings documents this provider manages. Every verb here was
@@ -45,6 +51,13 @@ var (
 	// Note the verb: unlike the three above, dot1x takes PATCH and answers
 	// -1600 to PUT.
 	Dot1XSetting = SettingDoc{Path: "/setting/dot1x", Verb: http.MethodPatch}
+	// IPS/IDS. PATCH, like dot1x. The *Categories lists describe which
+	// signature categories each protection level covers — reference data the
+	// controller maintains, not configuration.
+	IPSSetting = SettingDoc{
+		Path: "/setting/ips", Verb: http.MethodPatch,
+		ReadOnlyKeys: []string{"lowCategories", "mediumCategories", "highCategories", "allCategories"},
+	}
 )
 
 func (d SettingDoc) path(siteID string) string {
@@ -90,6 +103,9 @@ func (c *Client) UpdateSetting(ctx context.Context, siteID string, doc SettingDo
 		if controllerOwnedKey(k) {
 			delete(cur, k)
 		}
+	}
+	for _, k := range doc.ReadOnlyKeys {
+		delete(cur, k)
 	}
 	mergeInto(cur, fields)
 	if err := c.Do(ctx, doc.Verb, doc.path(siteID), cur, nil); err != nil {

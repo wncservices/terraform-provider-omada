@@ -884,6 +884,7 @@ func newMockController(t *testing.T) *httptest.Server {
 		"firewall/attackdefense": http.MethodPut,
 		"ssh":                    http.MethodPut,
 		"dot1x":                  http.MethodPatch,
+		"ips":                    http.MethodPatch,
 	}
 	singletons := map[string]map[string]any{
 		"ssh": {
@@ -894,6 +895,18 @@ func newMockController(t *testing.T) *httptest.Server {
 			"enable": false, "authMode": float64(1), "authType": float64(1),
 			"macFormat": float64(0), "vlanAssign": false,
 			"unmodelledKey": "keep-me",
+		},
+		// IPS. The *Categories lists are controller-owned reference data: the
+		// provider must report them but never send them, so this handler
+		// rejects a write that includes one.
+		"ips": {
+			"enable": true, "ipsMode": float64(1), "geoEnable": true, "dpLevel": float64(3),
+			"customCategories": []any{float64(1), float64(2)},
+			"lowCategories":    []any{float64(2), float64(3)},
+			"mediumCategories": []any{float64(1), float64(2), float64(3)},
+			"highCategories":   []any{float64(1), float64(2), float64(3), float64(4)},
+			"allCategories":    []any{float64(1), float64(2), float64(3), float64(4)},
+			"unmodelledKey":    "keep-me",
 		},
 		"transmission/alg": {
 			"ftp": true, "ftpPorts": []any{float64(21)},
@@ -939,6 +952,11 @@ func newMockController(t *testing.T) *httptest.Server {
 				for k := range in {
 					if _, isMeta := singletonMeta[k]; isMeta {
 						writeEnvelope(w, -1001, "read-only key "+k+" must not be sent", nil)
+						return
+					}
+					switch k {
+					case "lowCategories", "mediumCategories", "highCategories", "allCategories":
+						writeEnvelope(w, -1001, "controller-owned key "+k+" must not be sent", nil)
 						return
 					}
 				}
