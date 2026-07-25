@@ -884,6 +884,7 @@ func newMockController(t *testing.T) *httptest.Server {
 		"firewall/attackdefense": http.MethodPut,
 		"ssh":                    http.MethodPut,
 		"dot1x":                  http.MethodPatch,
+		"ips":                    http.MethodPatch,
 	}
 	singletons := map[string]map[string]any{
 		"ssh": {
@@ -894,6 +895,18 @@ func newMockController(t *testing.T) *httptest.Server {
 			"enable": false, "authMode": float64(1), "authType": float64(1),
 			"macFormat": float64(0), "vlanAssign": false,
 			"unmodelledKey": "keep-me",
+		},
+		// IPS. The *Categories lists are controller-owned reference data: the
+		// provider must report them but never send them, so this handler
+		// rejects a write that includes one.
+		"ips": {
+			"enable": true, "ipsMode": float64(1), "geoEnable": true, "dpLevel": float64(3),
+			"customCategories": []any{float64(1), float64(2)},
+			"lowCategories":    []any{float64(2), float64(3)},
+			"mediumCategories": []any{float64(1), float64(2), float64(3)},
+			"highCategories":   []any{float64(1), float64(2), float64(3), float64(4)},
+			"allCategories":    []any{float64(1), float64(2), float64(3), float64(4)},
+			"unmodelledKey":    "keep-me",
 		},
 		"transmission/alg": {
 			"ftp": true, "ftpPorts": []any{float64(21)},
@@ -939,6 +952,11 @@ func newMockController(t *testing.T) *httptest.Server {
 				for k := range in {
 					if _, isMeta := singletonMeta[k]; isMeta {
 						writeEnvelope(w, -1001, "read-only key "+k+" must not be sent", nil)
+						return
+					}
+					switch k {
+					case "lowCategories", "mediumCategories", "highCategories", "allCategories":
+						writeEnvelope(w, -1001, "controller-owned key "+k+" must not be sent", nil)
 						return
 					}
 				}
@@ -1212,6 +1230,65 @@ func newMockController(t *testing.T) *httptest.Server {
 		mu.Lock()
 		defer mu.Unlock()
 		_ = json.NewEncoder(w).Encode(radiusProfiles)
+	})
+
+	// IPS whitelist. The asymmetric paths are the point: the list is served
+	// from a /grid/ view that only answers GET, while create and delete live
+	// one level up at /setting/ips/whitelist.
+	ipsWhitelist := map[string]map[string]any{}
+	ipsNext := 1
+	const ipsList = "/abc123/api/v2/sites/site-1/setting/ips/grid/whitelist"
+	const ipsItem = "/abc123/api/v2/sites/site-1/setting/ips/whitelist"
+	mux.HandleFunc(ipsList, func(w http.ResponseWriter, r *http.Request) {
+		if !requireToken(w, r) {
+			return
+		}
+		if r.Method != http.MethodGet {
+			writeEnvelope(w, -1600, "Unsupported request path.", nil)
+			return
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		data := make([]map[string]any, 0, len(ipsWhitelist))
+		for _, e := range ipsWhitelist {
+			data = append(data, e)
+		}
+		writeEnvelope(w, 0, "", map[string]any{
+			"totalRows": len(data), "currentPage": 1, "currentSize": 100, "data": data,
+		})
+	})
+	mux.HandleFunc(ipsItem, func(w http.ResponseWriter, r *http.Request) {
+		if !requireToken(w, r) {
+			return
+		}
+		if r.Method != http.MethodPost {
+			writeEnvelope(w, -1600, "Unsupported request path.", nil)
+			return
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		var in map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&in)
+		id := fmt.Sprintf("ipsw-%d", ipsNext)
+		ipsNext++
+		in["id"] = id
+		ipsWhitelist[id] = in
+		// Null result, like the controller: the client resolves by matching.
+		writeEnvelope(w, 0, "", nil)
+	})
+	mux.HandleFunc(ipsItem+"/", func(w http.ResponseWriter, r *http.Request) {
+		if !requireToken(w, r) {
+			return
+		}
+		id := strings.TrimPrefix(r.URL.Path, ipsItem+"/")
+		mu.Lock()
+		defer mu.Unlock()
+		if r.Method != http.MethodDelete {
+			writeEnvelope(w, -1600, "Unsupported request path.", nil)
+			return
+		}
+		delete(ipsWhitelist, id)
+		writeEnvelope(w, 0, "", nil)
 	})
 
 	mux.HandleFunc("/debug/singletons", func(w http.ResponseWriter, _ *http.Request) {

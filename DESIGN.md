@@ -100,6 +100,12 @@ Two behaviours are baked in because every one of these endpoints shares them:
   `support*` / `exist*` capability flags the UI uses to decide what to render.
   These must be stripped before writing back; `controllerOwnedKey` does it, and a
   mock handler fails the test if any leaks into a write.
+- **A document can mix settings with reference data.** `/setting/ips` returns
+  `lowCategories` / `mediumCategories` / `highCategories` / `allCategories`
+  describing what each protection level covers. Those are not configuration:
+  the controller keeps them whether or not they are sent. Declare such keys in
+  the `SettingDoc`'s `ReadOnlyKeys` so the read-modify-write drops them, and
+  model them with `kindIntListRO` so they are reported as Computed-only.
 - **The update verb varies.** `/setting/ssh`, `/setting/transmission/alg` and
   `/setting/firewall/attackdefense` reject `PATCH` with `-1600` and need `PUT`;
   `/setting/dot1x` and `/setting/accessControl` are the reverse. Each `SettingDoc`
@@ -163,6 +169,8 @@ preserved via read-modify-write.
 | `omada_portal` | CRUD | live · subset | write-only `password`; bare-array list; PATCH RMW |
 | `omada_vpn` | CRUD | **read live, writes inferred** | see §5.2 |
 | `omada_attack_defense` | R/U (singleton) | live · subset | flood defense / packet anomaly / IP options; update is `PUT` |
+| `omada_ips_whitelist` | C/R/D | live | read at `/grid/`, write one level up; no update verb |
+| `omada_ips` | R/U (singleton) | live | update is `PATCH`; `*Categories` are controller-owned reference data |
 | `omada_alg` | R/U (singleton) | live | FTP/H.323/PPTP/IPsec/SIP ALGs; update is `PUT` |
 | `omada_ssh_settings` | R/U (singleton) | live | device SSH; update is `PUT` |
 | `omada_dot1x` | R/U (singleton) | live | site-wide 802.1X; update is `PATCH` |
@@ -398,6 +406,47 @@ by the controller regardless of what is sent, so it is modelled `Computed`
 secret in **plaintext** on read, exactly like the WiFi `psk`. Per §2.6 that means
 it is never read into state — model it write-only, deep-merge it on update, and
 add it to `ImportStateVerifyIgnore`.
+
+### 5.8a IPS allow/block lists — whitelist shipped, blacklist read-only
+
+The whitelist ships as `omada_ips_whitelist`. Its contract has the asymmetry
+worth remembering:
+
+| Call | Result |
+|---|---|
+| `GET /setting/ips/grid/whitelist` | list (paginated). The `/grid/` path is a **read-only view** for the UI table — anything but GET is `-1600` |
+| `POST /setting/ips/whitelist` | create. Null result; resolve the new id by matching the entry's fields |
+| `DELETE /setting/ips/whitelist/{id}` | delete |
+| `PUT`/`PATCH` anywhere | `-1600` — there is no update verb, and nothing to update |
+
+An entry is `direction` + `trafficType` + `trafficSource` and nothing else, so
+every field is part of its identity and the resource replaces on any change.
+`trafficType: 1` pairs with a network id.
+
+**How the shape was found matters for the next endpoint like it.** Probing was
+a dead end: this endpoint answers a flat `-1001 Invalid request parameters.` to
+everything, naming no fields, and ten candidate shapes built around `ip`,
+`signatureId`, `category` and friends were all indistinguishable — because the
+real vocabulary (traffic direction/source/type) shares no words with any of
+them. Only a UI capture of the `POST` body settled it. When an endpoint's
+errors name nothing and its list is empty, stop guessing and capture.
+
+Two neighbouring endpoints are **read-only and empty**, so neither is
+implemented:
+
+- `/setting/ips/grid/blacklist` — no write route (`POST` → `-1600`),
+  consistent with the engine populating it as it blocks while the practitioner
+  whitelists false positives.
+- `/setting/ips/signature` — paginated, but returns zero rows on the dev site
+  under every filter tried (`category`, `categoryId`, `level`, `type`,
+  `dpLevel`, `searchKey`, `all`), and **all four write verbs answer `-1600`**.
+  No sibling endpoint exposes a signature-database version or status either.
+
+Both look event-driven: they fill in as the IPS matches traffic. A read-only
+data source over either is straightforward *once a row exists* — until then the
+item shape would be guesswork, which is the same trap §5.8a was written about.
+If you need one, generate an event first (or capture the UI's request while its
+table has rows) and the shape follows.
 
 ### 5.9 NAT gaps — disable-NAT shipped, one-to-one NAT blocked by hardware
 
