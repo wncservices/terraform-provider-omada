@@ -156,6 +156,7 @@ preserved via read-modify-write.
 | `omada_alg` | R/U (singleton) | live | FTP/H.323/PPTP/IPsec/SIP ALGs; update is `PUT` |
 | `omada_ssh_settings` | R/U (singleton) | live | device SSH; update is `PUT` |
 | `omada_dot1x` | R/U (singleton) | live | site-wide 802.1X; update is `PATCH` |
+| `omada_time_range` | CRUD | live | schedule profile; create returns `profileId`; list has no `totalRows` |
 | `omada_site_settings` | R/U (singleton) | live · subset | ~45 fields; large object |
 | `omada_sites` (data) | R | live | |
 | `omada_networks` (data) | R | live | |
@@ -210,7 +211,13 @@ need only a read-only session:
   brute-force sweep cheap and unambiguous. Watch the casing: paths are
   **camelCase** (`/setting/radiusProfiles`, `/setting/accessControl`,
   `/setting/transmission/portForwardings`) even though a few are all-lower
-  (`/setting/firewall/attackdefense`).
+  (`/setting/firewall/attackdefense`) — **and some are kebab-case and
+  abbreviated**: `/setting/wan-ports`,
+  `/setting/wired-networks/disable-nats`, and one-to-one NAT at
+  `/setting/transmission/otonats` ("oto" = one-to-one). A sweep over
+  camelCase full words alone will miss those entirely, which is exactly how
+  they went unfound for a while. Sweep all three casings, and try
+  abbreviations.
 - **Ask the controller what the gateway supports.**
   `GET /sites/{id}/setting/capacity` returns a feature→bool map (`oneToOneNat`,
   `disableNat`, `customAcl`, `policyRouting`, `ipsec`, …). Use it to tell "this
@@ -366,41 +373,37 @@ secret in **plaintext** on read, exactly like the WiFi `psk`. Per §2.6 that mea
 it is never read into state — model it write-only, deep-merge it on update, and
 add it to `ImportStateVerifyIgnore`.
 
-### 5.9 Wanted but *not located* — needs a UI capture
+### 5.9 NAT gaps — endpoints located, shapes partly known
 
-Probing found no path for these, so they need step 1 of the recipe (browser
-devtools against the UI) rather than more guessing:
+These were unfindable by probing because their paths are kebab-case and
+abbreviated (see §4). Captured from the UI, and confirmed live:
 
-- **One-to-One NAT** and **Disable NAT**. `/setting/capacity` reports
-  `oneToOneNat: true` and `disableNat: true` on the ER707-M2, so the gateway
-  supports them and an endpoint must exist — but nothing was found under
-  `/setting/transmission/*`, `/setting/firewall/*`, `/setting/nat/*` or the WAN
-  document across ~40 name spellings each. DMZ and port triggering were equally
-  absent, which suggests this whole group lives somewhere unguessed. One-to-One
-  NAT also needs multiple WAN IPs (`supportWanMultipleIp`), so the page may only
-  materialise once the WAN is configured for it.
-- **WLAN optimization** — endpoints found, but it is an **action, not config**.
-  It lives outside `/setting/*` entirely, under `/sites/{id}/rfPlanning`:
+| Call | State |
+|---|---|
+| `GET /setting/transmission/otonats` | **one-to-one NAT**, paginated envelope. Empty on the dev site |
+| `GET /setting/wired-networks/disable-nats` | **disable NAT**, paginated envelope. Empty on the dev site |
+| `GET /setting/wan-ports` | exists but answers `-1001` — required query parameter not yet known |
+| `GET /setting/profiles/timeranges` | **shipped** as `omada_time_range` |
 
-  | Call | Behaviour |
-  |---|---|
-  | `GET /rfPlanning` | returns the parameter document: `channelDeployEnable*`, `powerAdjustEnable*`, `chanWidth{2,5,6}g`, `mode`, `excludeAps`, `scheduleEnable`, `occurrence{timingType,hour,minute}` |
-  | `GET /rfPlanning/result` | `{"status": N}` — the state of an optimization *run* |
-  | `PUT /rfPlanning/config` | a real route (bogus siblings answer `-1600`) that **validates** the full document — partial or wrapped bodies are rejected `-1001`, and `mode: 1` is rejected — but **nothing written through it is reflected by `GET /rfPlanning`** |
+**One-to-one NAT.** Field names were recovered from create-validation errors
+(`POST` with a deliberately invalid TEST-NET-3 external address, so no working
+mapping could ever be created): `externalIp`, `internalIp`, `dmz`, plus a
+**"Wan ports"** field whose JSON key is still unknown — `wanPorts`,
+`wanPortIds`, `wanPortId`, `interfaceWanPortIds`, `wanPortUuids` and
+`portUuids` were all rejected. `/setting/wan-ports` is presumably where those
+ids come from, so cracking its query parameter likely unblocks both. Note the
+list also reports `supportGeneralDialingTypeWan: false`, and one-to-one NAT
+needs multiple WAN addresses (`supportWanMultipleIp`), so it may not be usable
+on this WAN at all.
 
-  Every field tested (`excludeAps`, `chanWidth2g`, `channelDeployEnable6g`,
-  `occurrence.minute`) round-tripped as accepted-but-unpersisted. So
-  `/rfPlanning/config` appears to *stage* parameters for an optimization run
-  that a separate call then starts — a wizard, not durable state.
+**Disable NAT.** ⚠️ Deliberately **not** probed with a throwaway. Unlike every
+other endpoint here, a *successful* create has an immediate blast radius:
+disabling NAT for a LAN drops that VLAN's internet access. Do not iterate
+create-validation against it on a live site. Get the payload from a UI capture
+of the POST instead.
 
-  **This is a poor fit for a Terraform resource** as it stands: Terraform
-  reconciles desired state, and there is no state here to reconcile, only a job
-  to trigger. Before building anything, capture the UI's **Save** and **Run**
-  requests from Tools → WLAN Optimization to find whether any of it persists.
-  If only the *schedule* persists, that part alone could be a small resource.
-
-  (Note: the run-triggering call was deliberately never fired during this
-  investigation — starting an optimization re-channels live APs.)
+**To finish either:** capture the UI's `POST` when adding the entry — that
+gives the field names outright, which is cheaper and safer than more guessing.
 
 ### 5.10 Already covered — don't re-implement
 
@@ -412,6 +415,16 @@ from the resource names:
 - **Multicast.** `omada_network` carries `igmp_snoop_enable`, `mld_snoop_enable`
   and `fast_leave_enable`; `omada_wireless_network` carries the
   `multicast_*` family.
+
+### 5.11 WLAN optimization — an action, not config
+
+Endpoints exist under `/sites/{id}/rfPlanning` (see the table below), but
+`PUT /rfPlanning/config` validates the document and **persists nothing**, and
+`/rfPlanning/result` returns a job status — so this is a wizard, not durable
+state, and a poor fit for a Terraform resource. Full detail is in the git
+history of this file; the short version is that it needs a UI capture of Save
+to establish whether any of it (probably only the schedule) persists. The
+run-triggering call was never fired: it re-channels live APs.
 
 ---
 

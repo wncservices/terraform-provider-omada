@@ -956,6 +956,67 @@ func newMockController(t *testing.T) *httptest.Server {
 			writeEnvelope(w, 0, "", out)
 		})
 	}
+	// Time-range profiles. Two controller quirks are emulated because the client
+	// depends on both: the list envelope carries `data` but **no** `totalRows`
+	// (the endpoint does not paginate), and create answers with the new id under
+	// `profileId` rather than echoing the object.
+	timeRanges := map[string]map[string]any{}
+	trNext := 1
+	const trBase = "/abc123/api/v2/sites/site-1/setting/profiles/timeranges"
+	mux.HandleFunc(trBase, func(w http.ResponseWriter, r *http.Request) {
+		if !requireToken(w, r) {
+			return
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		switch r.Method {
+		case http.MethodPost:
+			var in map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&in)
+			id := fmt.Sprintf("tr-%d", trNext)
+			trNext++
+			in["id"] = id
+			// The controller stamps a ruleId onto each slot; the provider must
+			// tolerate reading it back without diffing on it.
+			if slots, ok := in["timeList"].([]any); ok {
+				for i, sl := range slots {
+					if m, ok := sl.(map[string]any); ok {
+						m["ruleId"] = float64(1000 + i)
+					}
+				}
+			}
+			timeRanges[id] = in
+			writeEnvelope(w, 0, "", map[string]any{"profileId": id})
+		default: // GET
+			data := make([]map[string]any, 0, len(timeRanges))
+			for _, t := range timeRanges {
+				data = append(data, t)
+			}
+			writeEnvelope(w, 0, "", map[string]any{"data": data})
+		}
+	})
+	mux.HandleFunc(trBase+"/", func(w http.ResponseWriter, r *http.Request) {
+		if !requireToken(w, r) {
+			return
+		}
+		id := strings.TrimPrefix(r.URL.Path, trBase+"/")
+		mu.Lock()
+		defer mu.Unlock()
+		switch r.Method {
+		case http.MethodDelete:
+			delete(timeRanges, id)
+			writeEnvelope(w, 0, "", nil)
+		case http.MethodPatch:
+			var in map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&in)
+			in["id"] = id
+			timeRanges[id] = in
+			writeEnvelope(w, 0, "", in)
+		default:
+			writeEnvelope(w, -1600, "Unsupported request path.", nil)
+		}
+	})
+
 	mux.HandleFunc("/debug/singletons", func(w http.ResponseWriter, _ *http.Request) {
 		mu.Lock()
 		defer mu.Unlock()
