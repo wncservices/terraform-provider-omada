@@ -40,13 +40,15 @@ resource "omada_portal" "guest" {
 
 ### Optional
 
+> **NOTE**: [Write-only arguments](https://developer.hashicorp.com/terraform/language/resources/ephemeral#write-only-arguments) are supported in Terraform 1.11 and later.
+
 - `auth_timeout` (Number) Session timeout before a client must re-authenticate (controller units; the UI's preset selector).
 - `auth_type` (Number) Authentication type: `0` = no auth (click-through), `1` = simple password (one shared password).
 - `enable` (Boolean) Whether the portal is active. While enabled, clients on the bound SSIDs/networks must authenticate before reaching the internet.
 - `https_redirect` (Boolean) Whether to redirect HTTPS requests to the portal page.
 - `landing_page` (Number) Where the client lands after authenticating (`1` = the originally requested URL).
 - `network_ids` (List of String) IDs of the LAN networks this portal gates (see the `omada_network` resource).
-- `password` (String, Sensitive) Shared password for `auth_type = 1`. **Write-only**: the controller never returns it, so it is never read into Terraform state and drift on it cannot be detected. Supply it from a secret store (e.g. Vault) rather than hard-coding it. Changing the value pushes the new password.
+- `password` (String, Sensitive, [Write-only](https://developer.hashicorp.com/terraform/language/resources/ephemeral#write-only-arguments)) Shared password for `auth_type = 1`. **Write-only**: supplied on apply, never returned by the controller, and never persisted to state or plan — so drift on it cannot be detected. Supply it from a secret store (e.g. Vault) rather than hard-coding it. Changing the value pushes the new password.
 - `site` (String) Site name. Defaults to the primary site. Changing forces replacement.
 - `ssid_ids` (List of String) IDs of the SSIDs this portal gates (see the `omada_wireless_network` resource).
 

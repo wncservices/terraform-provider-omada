@@ -88,11 +88,15 @@ func (r *portalResource) Schema(_ context.Context, _ resource.SchemaRequest, res
 				Default: int64default.StaticInt64(omada.PortalAuthNone),
 			},
 			"password": schema.StringAttribute{
-				MarkdownDescription: "Shared password for `auth_type = 1`. **Write-only**: the controller never returns it, " +
-					"so it is never read into Terraform state and drift on it cannot be detected. Supply it from a secret " +
-					"store (e.g. Vault) rather than hard-coding it. Changing the value pushes the new password.",
+				MarkdownDescription: "Shared password for `auth_type = 1`. **Write-only**: supplied on apply, never " +
+					"returned by the controller, and never persisted to state or plan — so drift on it cannot be " +
+					"detected. Supply it from a secret store (e.g. Vault) rather than hard-coding it. Changing the " +
+					"value pushes the new password.",
 				Optional:  true,
 				Sensitive: true,
+				// See the note on omada_wireless_network.psk: Sensitive alone
+				// would still write the value into the state file.
+				WriteOnly: true,
 			},
 			// The Optional+Computed attributes below carry UseStateForUnknown so
 			// that leaving them out of the config keeps whatever the controller
@@ -202,12 +206,15 @@ func (r *portalResource) apply(ctx context.Context, p *omada.Portal, m *portalRe
 }
 
 func (r *portalResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
-	var plan portalResourceModel
+	var plan, cfg portalResourceModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
+	// Write-only attributes are null in the plan; their values live only in
+	// the configuration.
+	resp.Diagnostics.Append(req.Config.Get(ctx, &cfg)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	if plan.AuthType.ValueInt64() == omada.PortalAuthSimplePassword && plan.Password.ValueString() == "" {
+	if plan.AuthType.ValueInt64() == omada.PortalAuthSimplePassword && cfg.Password.ValueString() == "" {
 		resp.Diagnostics.AddAttributeError(path.Root("password"), "Missing portal password",
 			"auth_type = 1 (simple password) requires `password` to be set, otherwise the portal would accept an empty password.")
 		return
@@ -222,7 +229,7 @@ func (r *portalResource) Create(ctx context.Context, req resource.CreateRequest,
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	created, err := r.data.client.CreatePortal(ctx, siteID, fields, plan.Password.ValueString())
+	created, err := r.data.client.CreatePortal(ctx, siteID, fields, cfg.Password.ValueString())
 	if err != nil {
 		resp.Diagnostics.AddError("Unable to create portal", err.Error())
 		return
@@ -257,8 +264,11 @@ func (r *portalResource) Read(ctx context.Context, req resource.ReadRequest, res
 }
 
 func (r *portalResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
-	var plan portalResourceModel
+	var plan, cfg portalResourceModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
+	// Write-only attributes are null in the plan; their values live only in
+	// the configuration.
+	resp.Diagnostics.Append(req.Config.Get(ctx, &cfg)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
@@ -272,7 +282,7 @@ func (r *portalResource) Update(ctx context.Context, req resource.UpdateRequest,
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	updated, err := r.data.client.UpdatePortal(ctx, siteID, plan.ID.ValueString(), fields, plan.Password.ValueString())
+	updated, err := r.data.client.UpdatePortal(ctx, siteID, plan.ID.ValueString(), fields, cfg.Password.ValueString())
 	if err != nil {
 		resp.Diagnostics.AddError("Unable to update portal", err.Error())
 		return

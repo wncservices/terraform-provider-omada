@@ -4,14 +4,14 @@ page_title: "omada_wireless_network Resource - omada"
 subcategory: ""
 description: |-
   Manages a wireless SSID within a WLAN group: bands, security, VLAN tagging, PMF, roaming, rate limiting, multicast and MAC filtering.
-  psk is write-only — it is never read back into state, so the WiFi password does not land in your repo or state file. Updates deep-merge the PSK object, so an update that omits psk leaves the existing key untouched.
+  psk is a Terraform write-only attribute: it is supplied on apply, never read back from the controller, and never persisted to state or plan. Updates deep-merge the PSK object, so an update that omits psk leaves the existing key untouched.
 ---
 
 # omada_wireless_network (Resource)
 
 Manages a wireless SSID within a WLAN group: bands, security, VLAN tagging, PMF, roaming, rate limiting, multicast and MAC filtering.
 
-`psk` is **write-only** — it is never read back into state, so the WiFi password does not land in your repo or state file. Updates deep-merge the PSK object, so an update that omits `psk` leaves the existing key untouched.
+`psk` is a Terraform **write-only** attribute: it is supplied on apply, never read back from the controller, and never persisted to state or plan. Updates deep-merge the PSK object, so an update that omits `psk` leaves the existing key untouched.
 
 ## Example Usage
 
@@ -35,6 +35,8 @@ resource "omada_wireless_network" "iot" {
 
 ### Optional
 
+> **NOTE**: [Write-only arguments](https://developer.hashicorp.com/terraform/language/resources/ephemeral#write-only-arguments) are supported in Terraform 1.11 and later.
+
 - `access_enable` (Boolean) Access control.
 - `band` (Number) Radio band bitmask: 1=2.4GHz, 2=5GHz, 4=6GHz (7=all).
 - `broadcast` (Boolean) Whether the SSID is broadcast (visible).
@@ -54,7 +56,7 @@ resource "omada_wireless_network" "iot" {
 - `pmf_mode` (Number) Protected Management Frames mode.
 - `portal_enable` (Boolean) Captive portal on this SSID.
 - `prohibit_wifi_share` (Boolean) Prohibit WiFi sharing.
-- `psk` (String, Sensitive) Pre-shared key (WiFi password). **Write-only** — never refreshed from the controller.
+- `psk` (String, Sensitive, [Write-only](https://developer.hashicorp.com/terraform/language/resources/ephemeral#write-only-arguments)) Pre-shared key (WiFi password). **Write-only**: supplied on apply, never read back from the controller and never persisted to state or plan.
 - `psk_encryption` (Number) PSK encryption code.
 - `psk_gik_rekey` (Boolean) GIK rekeying.
 - `psk_version` (Number) WPA version code for the PSK.

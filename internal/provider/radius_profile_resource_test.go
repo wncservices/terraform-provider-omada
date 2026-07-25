@@ -4,7 +4,6 @@
 package provider
 
 import (
-	"encoding/json"
 	"fmt"
 	"testing"
 
@@ -42,19 +41,7 @@ func TestAccRadiusProfileResource(t *testing.T) {
 			return nil
 		}
 	}
-	// The secret must not be anywhere in the state file.
-	checkSecretNotInState := func(s *terraform.State) error {
-		buf, err := json.Marshal(s)
-		if err != nil {
-			return err
-		}
-		for _, secret := range []string{"s3cret-radius", "rotated-radius"} {
-			if containsStr(string(buf), secret) {
-				return fmt.Errorf("shared secret %q leaked into Terraform state", secret)
-			}
-		}
-		return nil
-	}
+	checkSecretNotInState := checkSecretsAbsentFromState(t, "s3cret-radius", "rotated-radius")
 
 	resource.Test(t, resource.TestCase{
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
@@ -109,15 +96,4 @@ resource "omada_radius_profile" "corp" {
 			},
 		},
 	})
-}
-
-func containsStr(haystack, needle string) bool {
-	return len(needle) > 0 && len(haystack) >= len(needle) && (func() bool {
-		for i := 0; i+len(needle) <= len(haystack); i++ {
-			if haystack[i:i+len(needle)] == needle {
-				return true
-			}
-		}
-		return false
-	})()
 }

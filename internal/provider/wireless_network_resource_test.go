@@ -53,6 +53,7 @@ resource "omada_wireless_network" "iot" {
   multicast_channel_util = 100
 }`,
 				Check: resource.ComposeAggregateTestCheckFunc(
+					checkSecretsAbsentFromState(t, "supersecret", "rotatedsecret"),
 					resource.TestCheckResourceAttrSet("omada_wireless_network.iot", "id"),
 					resource.TestCheckResourceAttr("omada_wireless_network.iot", "vlan_id", "30"),
 					resource.TestCheckResourceAttr("omada_wireless_network.iot", "enable_11r", "true"),
@@ -84,6 +85,7 @@ resource "omada_wireless_network" "iot" {
   multicast_channel_util = 80
 }`,
 				Check: resource.ComposeAggregateTestCheckFunc(
+					checkSecretsAbsentFromState(t, "supersecret", "rotatedsecret"),
 					resource.TestCheckResourceAttr("omada_wireless_network.iot", "vlan_id", "40"),
 					resource.TestCheckResourceAttr("omada_wireless_network.iot", "enable_11r", "false"),
 					resource.TestCheckResourceAttr("omada_wireless_network.iot", "mac_filter_enable", "true"),
