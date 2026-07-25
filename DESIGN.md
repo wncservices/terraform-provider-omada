@@ -417,9 +417,21 @@ from the resource names:
 
 ## 6. Release & versioning
 
-- Semver via signed tags. On a `v*` tag, GoReleaser builds multi-platform archives,
-  **GPG-signs** the checksums, and publishes a GitHub Release; the Terraform Registry
-  ingests it. Current line: `v0.4.x`.
+- Semver via signed tags. On a `v*` tag, GoReleaser builds multi-platform archives
+  and **GPG-signs** the checksums; the workflow then creates a **draft** release,
+  uploads all 16 artifacts, and publishes it. The Terraform Registry ingests it on
+  publication. Current line: `v0.5.x`.
+- **Why the draft dance:** with GitHub *immutable releases* enabled, a release is
+  sealed the moment it is published and then rejects asset uploads with
+  `422 Cannot upload assets to an immutable release`. GoReleaser publishes before
+  uploading, so releasing directly produced a *published but empty* release — which
+  looks like success. That silently shipped nothing for **v0.4.0, v0.5.0 and
+  v0.5.1**, and the Registry stayed on 0.3.0 the whole time. Setting GoReleaser's
+  own `release.draft: true` did **not** help (it still created the release
+  published), so the workflow runs it with `--skip=publish` and does the
+  draft → upload → publish sequence itself. The final step asserts at least 16
+  assets are attached, so an empty release fails the build instead of passing
+  quietly.
 - Breaking schema changes wait for `v1.0.0`. Until then, additive field coverage and
   new resources are the normal cadence.
 - CI (`.github/workflows/test.yml`) runs build, unit + acceptance tests, lint, and a

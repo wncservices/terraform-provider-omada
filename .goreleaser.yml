@@ -53,14 +53,10 @@ signs:
       - "--detach-sign"
       - "${artifact}"
 
+# NOTE: GoReleaser runs with --skip=publish; the workflow creates the draft,
+# uploads artifacts and publishes. This block is kept only so `extra_files`
+# still contributes the manifest name to the checksum file.
 release:
-  # GitHub "immutable releases" seals a release the moment it is *published*,
-  # and sealed releases reject asset uploads with 422. GoReleaser publishes
-  # first and uploads after, so releasing straight to published fails every
-  # upload (this is what silently produced empty v0.4.0 and v0.5.0 releases).
-  # Create the release as a draft, which still accepts uploads, and let the
-  # workflow publish it once every artifact is attached.
-  draft: true
   extra_files:
     - glob: "terraform-registry-manifest.json"
       name_template: "{{ .ProjectName }}_{{ .Version }}_manifest.json"

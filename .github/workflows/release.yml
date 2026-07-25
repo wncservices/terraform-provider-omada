@@ -25,19 +25,52 @@ jobs:
           gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
           passphrase: ${{ secrets.PASSPHRASE }}
 
-      - name: Run GoReleaser
+      # Build, archive, checksum and GPG-sign only — publishing is handled
+      # below. GoReleaser's own `release.draft` setting was NOT honoured
+      # against a repo with immutable releases enabled: it created the release
+      # already published (and therefore sealed), so every asset upload came
+      # back 422. Taking publishing away from it removes that ambiguity.
+      - name: Build and sign artifacts
         uses: goreleaser/goreleaser-action@v7
         with:
           version: "~> v2"
-          args: release --clean
+          args: release --clean --skip=publish
         env:
           GPG_FINGERPRINT: ${{ steps.import_gpg.outputs.fingerprint }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # GoReleaser leaves the release in draft so its uploads are accepted (see
-      # the note in .goreleaser.yml). Publishing is the final, sealing step —
-      # and it is what makes the Terraform Registry ingest the version.
+      # GitHub "immutable releases" seals a release when it is *published*, and
+      # a sealed release rejects asset uploads. So assemble the release as a
+      # draft, attach every artifact while it still accepts them, and publish
+      # last — sealing it with the assets already in place. This works whether
+      # or not immutable releases is enabled, so it no longer depends on a repo
+      # setting that silently broke v0.4.0 through v0.5.1.
       - name: Publish the release
-        run: gh release edit "${GITHUB_REF_NAME}" --draft=false --latest
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          VERSION="${TAG#v}"
+
+          # The Registry requires the manifest alongside the archives, named
+          # to match the entry GoReleaser already put in SHA256SUMS.
+          cp terraform-registry-manifest.json \
+             "dist/terraform-provider-omada_${VERSION}_manifest.json"
+
+          gh release create "$TAG" --draft --verify-tag --title "$TAG" --generate-notes
+
+          gh release upload "$TAG" \
+            dist/*.zip \
+            "dist/terraform-provider-omada_${VERSION}_SHA256SUMS" \
+            "dist/terraform-provider-omada_${VERSION}_SHA256SUMS.sig" \
+            "dist/terraform-provider-omada_${VERSION}_manifest.json"
+
+          gh release edit "$TAG" --draft=false --latest
+
+          # Fail loudly rather than leave another empty release behind: an
+          # empty-but-published release is what made this bug invisible for
+          # three versions.
+          count=$(gh release view "$TAG" --json assets --jq '.assets|length')
+          echo "attached assets: $count"
+          test "$count" -ge 16
