@@ -50,6 +50,18 @@ Every resource has mock-backed acceptance tests (create → import → update) t
 in CI. Resources marked "verified live" had their exact endpoint + verbs confirmed
 against a real v6.2 controller with throwaway objects (created and deleted).
 
+## Secrets
+
+Every secret this provider accepts — the WiFi `psk`, the captive-portal
+`password`, and a RADIUS `shared_secret` — is a Terraform **write-only**
+attribute. The value is supplied on apply and is never persisted to state or
+plan, which matters because the controller returns WiFi keys and RADIUS secrets
+in **plaintext** on read.
+
+This requires **Terraform ≥ 1.11**. Note that `Sensitive: true` alone would not
+be enough: Terraform stores configured values in state regardless of what a
+provider reads back, so only `WriteOnly` actually keeps them out.
+
 ## Known limitations
 
 - **Creating a brand-new network is not yet supported.** The controller's web UI

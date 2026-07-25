@@ -92,7 +92,7 @@ func (r *wirelessResource) Schema(_ context.Context, _ resource.SchemaRequest, r
 	}
 	resp.Schema = schema.Schema{
 		MarkdownDescription: "Manages a wireless SSID within a WLAN group: bands, security, VLAN tagging, PMF, roaming, rate limiting, multicast and MAC filtering.\n\n" +
-			"`psk` is **write-only** — it is never read back into state, so the WiFi password does not land in your repo or state file. Updates deep-merge the PSK object, so an update that omits `psk` leaves the existing key untouched.",
+			"`psk` is a Terraform **write-only** attribute: it is supplied on apply, never read back from the controller, and never persisted to state or plan. Updates deep-merge the PSK object, so an update that omits `psk` leaves the existing key untouched.",
 		Attributes: map[string]schema.Attribute{
 			"id":            schema.StringAttribute{Computed: true, PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()}},
 			"site":          schema.StringAttribute{Optional: true, MarkdownDescription: "Site name. Defaults to the primary site. Changing forces replacement.", PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()}},
@@ -101,11 +101,21 @@ func (r *wirelessResource) Schema(_ context.Context, _ resource.SchemaRequest, r
 			"name":          schema.StringAttribute{Required: true, MarkdownDescription: "The SSID (network name)."},
 			"band":          schema.Int64Attribute{Optional: true, Computed: true, Default: int64default.StaticInt64(7), MarkdownDescription: "Radio band bitmask: 1=2.4GHz, 2=5GHz, 4=6GHz (7=all)."},
 			"security":      schema.Int64Attribute{Optional: true, Computed: true, Default: int64default.StaticInt64(3), MarkdownDescription: "Security mode: 0=open, 3=WPA2/WPA3-PSK."},
-			"psk":           schema.StringAttribute{Optional: true, Sensitive: true, MarkdownDescription: "Pre-shared key (WiFi password). **Write-only** — never refreshed from the controller."},
-			"broadcast":     schema.BoolAttribute{Optional: true, Computed: true, Default: booldefault.StaticBool(true), MarkdownDescription: "Whether the SSID is broadcast (visible)."},
-			"vlan_enable":   schema.BoolAttribute{Optional: true, Computed: true, Default: booldefault.StaticBool(false), MarkdownDescription: "Whether the SSID is tagged to a VLAN."},
-			"vlan_id":       schema.Int64Attribute{Optional: true, Computed: true, Default: int64default.StaticInt64(1), MarkdownDescription: "VLAN ID when vlan_enable is true."},
-			"guest_net":     schema.BoolAttribute{Optional: true, Computed: true, Default: booldefault.StaticBool(false), MarkdownDescription: "Whether this is a guest network."},
+			"psk": schema.StringAttribute{
+				Optional:  true,
+				Sensitive: true,
+				// A Terraform write-only attribute: the value reaches the
+				// provider during apply but is never persisted to state or
+				// plan. Sensitive alone is not enough — Terraform stores
+				// configured values regardless of what the provider reads
+				// back, so the key would otherwise sit in the state file.
+				WriteOnly:           true,
+				MarkdownDescription: "Pre-shared key (WiFi password). **Write-only**: supplied on apply, never read back from the controller and never persisted to state or plan.",
+			},
+			"broadcast":   schema.BoolAttribute{Optional: true, Computed: true, Default: booldefault.StaticBool(true), MarkdownDescription: "Whether the SSID is broadcast (visible)."},
+			"vlan_enable": schema.BoolAttribute{Optional: true, Computed: true, Default: booldefault.StaticBool(false), MarkdownDescription: "Whether the SSID is tagged to a VLAN."},
+			"vlan_id":     schema.Int64Attribute{Optional: true, Computed: true, Default: int64default.StaticInt64(1), MarkdownDescription: "VLAN ID when vlan_enable is true."},
+			"guest_net":   schema.BoolAttribute{Optional: true, Computed: true, Default: booldefault.StaticBool(false), MarkdownDescription: "Whether this is a guest network."},
 
 			"portal_enable":        b("Captive portal on this SSID."),
 			"access_enable":        b("Access control."),
@@ -317,8 +327,10 @@ func (r *wirelessResource) apply(w *omada.WirelessNetwork, m *wirelessResourceMo
 }
 
 func (r *wirelessResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
-	var plan wirelessResourceModel
+	var plan, cfg wirelessResourceModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
+	// `psk` is write-only, so it is null in the plan; read it from config.
+	resp.Diagnostics.Append(req.Config.Get(ctx, &cfg)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
@@ -327,7 +339,7 @@ func (r *wirelessResource) Create(ctx context.Context, req resource.CreateReques
 		resp.Diagnostics.AddError("Unable to resolve site", err.Error())
 		return
 	}
-	created, err := r.data.client.CreateSSID(ctx, siteID, plan.WLANGroupID.ValueString(), r.fields(plan), plan.PSK.ValueString())
+	created, err := r.data.client.CreateSSID(ctx, siteID, plan.WLANGroupID.ValueString(), r.fields(plan), cfg.PSK.ValueString())
 	if err != nil {
 		resp.Diagnostics.AddError("Unable to create SSID", err.Error())
 		return
@@ -362,8 +374,10 @@ func (r *wirelessResource) Read(ctx context.Context, req resource.ReadRequest, r
 }
 
 func (r *wirelessResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
-	var plan wirelessResourceModel
+	var plan, cfg wirelessResourceModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
+	// `psk` is write-only, so it is null in the plan; read it from config.
+	resp.Diagnostics.Append(req.Config.Get(ctx, &cfg)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
@@ -372,7 +386,7 @@ func (r *wirelessResource) Update(ctx context.Context, req resource.UpdateReques
 		resp.Diagnostics.AddError("Unable to resolve site", err.Error())
 		return
 	}
-	updated, err := r.data.client.UpdateSSID(ctx, siteID, plan.WLANGroupID.ValueString(), plan.ID.ValueString(), r.fields(plan), plan.PSK.ValueString())
+	updated, err := r.data.client.UpdateSSID(ctx, siteID, plan.WLANGroupID.ValueString(), plan.ID.ValueString(), r.fields(plan), cfg.PSK.ValueString())
 	if err != nil {
 		resp.Diagnostics.AddError("Unable to update SSID", err.Error())
 		return

@@ -65,6 +65,7 @@ resource "omada_portal" "guest" {
   network_ids = []
 }`,
 				Check: resource.ComposeAggregateTestCheckFunc(
+					checkSecretsAbsentFromState(t, "s3cret-guest", "rotated-pw"),
 					resource.TestCheckResourceAttrSet("omada_portal.guest", "id"),
 					resource.TestCheckResourceAttr("omada_portal.guest", "enable", "true"),
 					resource.TestCheckResourceAttr("omada_portal.guest", "auth_type", "1"),
@@ -94,6 +95,7 @@ resource "omada_portal" "guest" {
   network_ids = []
 }`,
 				Check: resource.ComposeAggregateTestCheckFunc(
+					checkSecretsAbsentFromState(t, "s3cret-guest", "rotated-pw"),
 					resource.TestCheckResourceAttr("omada_portal.guest", "enable", "false"),
 					checkPasswordStored("rotated-pw"),
 					checkCustomizePreserved,
