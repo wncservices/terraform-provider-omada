@@ -157,6 +157,7 @@ preserved via read-modify-write.
 | `omada_ssh_settings` | R/U (singleton) | live | device SSH; update is `PUT` |
 | `omada_dot1x` | R/U (singleton) | live | site-wide 802.1X; update is `PATCH` |
 | `omada_time_range` | CRUD | live | schedule profile; create returns `profileId`; list has no `totalRows` |
+| `omada_disable_nat` | CRUD | live (delete inferred) | plural list / singular item paths; update is `PUT`; one rule per WAN port |
 | `omada_site_settings` | R/U (singleton) | live · subset | ~45 fields; large object |
 | `omada_sites` (data) | R | live | |
 | `omada_networks` (data) | R | live | |
@@ -363,6 +364,7 @@ are an afternoon each — write a `settingsSpec` and a mock handler.
 | `/setting/upnp` | `PUT` | `omada_upnp` | single `enable` |
 | `/setting/snmp` | `PUT` | `omada_snmp` | v1/v2c/v3, security level, auth/privacy mode |
 | `/setting/firewall/macfilter` | — | `omada_mac_filter` | |
+| `/setting/service/dhcp` | — | `omada_dhcp_reservation` | paginated list of **DHCP reservations** (`netId`, `mac`, `ip`, `status`, `name`, `exportToIpMacBinding`, `options`). 13 live on the dev site; several keys (`netName`, `serverName`, `serverMac`, `abnormal`, `showingType`) are derived and must not be written back |
 | `/setting/service/ddns` | — | `omada_ddns` | paginated list |
 | `/setting/service/rebootSchedules`, `/setting/service/poeSchedules` | — | schedules | paginated lists |
 | `/setting/transmission/sessionLimits`, `/setting/transmission/bandwidthControls` | — | QoS-ish | |
@@ -373,37 +375,47 @@ secret in **plaintext** on read, exactly like the WiFi `psk`. Per §2.6 that mea
 it is never read into state — model it write-only, deep-merge it on update, and
 add it to `ImportStateVerifyIgnore`.
 
-### 5.9 NAT gaps — endpoints located, shapes partly known
+### 5.9 NAT gaps — disable-NAT shipped, one-to-one NAT blocked by hardware
 
-These were unfindable by probing because their paths are kebab-case and
-abbreviated (see §4). Captured from the UI, and confirmed live:
+Both paths came from UI captures; probing could never have found them because
+they are kebab-case and abbreviated (see §4).
 
-| Call | State |
+**Disable NAT — shipped** as `omada_disable_nat`. The contract is asymmetric
+and worth stating plainly:
+
+| Operation | Call |
 |---|---|
-| `GET /setting/transmission/otonats` | **one-to-one NAT**, paginated envelope. Empty on the dev site |
-| `GET /setting/wired-networks/disable-nats` | **disable NAT**, paginated envelope. Empty on the dev site |
-| `GET /setting/wan-ports` | exists but answers `-1001` — required query parameter not yet known |
-| `GET /setting/profiles/timeranges` | **shipped** as `omada_time_range` |
+| list | `GET /setting/wired-networks/disable-**nats**` (plural, paginated) |
+| create | `POST /setting/wired-networks/disable-**nat**` (singular; no object echoed — resolve by name) |
+| update | `PUT /setting/wired-networks/disable-nat/{id}` (`PATCH` → `-1600`) |
+| delete | `DELETE /setting/wired-networks/disable-nat/{id}` — **inferred**, not exercised |
 
-**One-to-one NAT.** Field names were recovered from create-validation errors
-(`POST` with a deliberately invalid TEST-NET-3 external address, so no working
-mapping could ever be created): `externalIp`, `internalIp`, `dmz`, plus a
-**"Wan ports"** field whose JSON key is still unknown — `wanPorts`,
-`wanPortIds`, `wanPortId`, `interfaceWanPortIds`, `wanPortUuids` and
-`portUuids` were all rejected. `/setting/wan-ports` is presumably where those
-ids come from, so cracking its query parameter likely unblocks both. Note the
-list also reports `supportGeneralDialingTypeWan: false`, and one-to-one NAT
-needs multiple WAN addresses (`supportWanMultipleIp`), so it may not be usable
-on this WAN at all.
+Fields: `name`, `interface` (WAN interface id, `1_<hex>`), `lanList` (network
+ids), `status`. The controller allows **one rule per WAN port** (`-34247`
+otherwise), which is also why delete is unverified: the dev site's single WAN
+already held the one permitted rule, so no throwaway could be created. Create
+and update were confirmed against that existing rule with `status:false`
+preserved throughout — a disabled rule cannot affect traffic.
 
-**Disable NAT.** ⚠️ Deliberately **not** probed with a throwaway. Unlike every
-other endpoint here, a *successful* create has an immediate blast radius:
-disabling NAT for a LAN drops that VLAN's internet access. Do not iterate
-create-validation against it on a live site. Get the payload from a UI capture
-of the POST instead.
+**One-to-one NAT — field set complete, unusable on this hardware.**
+`POST /setting/transmission/otonats` takes `name`, `status`, `externalIp`,
+`internalIp`, `dmz` and **`interfaceIds`** (a list of `1_<hex>` WAN interface
+ids). That last name was the hold-up; it was confirmed when the error changed
+from `-1001 Wan ports should not be null` to:
 
-**To finish either:** capture the UI's `POST` when adding the entry — that
-gives the field names outright, which is cheaper and safer than more guessing.
+```
+-34282 Please select a WAN interface that has the Static IP connection type configured.
+```
+
+Which is also the blocker: **one-to-one NAT requires a WAN on a static-IP
+connection**, and the dev site's WAN is not, so create/update/delete cannot be
+exercised there at all (consistent with `supportGeneralDialingTypeWan: false`
+on the list response). Deliberately **not** shipped as a resource on that
+basis — a NAT write path nobody can test is how you take someone's internet
+down. Anyone with a static-IP WAN can finish it from the field set above.
+
+All probing used a TEST-NET-3 external address (`203.0.113.5`) so that no
+functional mapping could ever be created, and the list stayed empty throughout.
 
 ### 5.10 Already covered — don't re-implement
 

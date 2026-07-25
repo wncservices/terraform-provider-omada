@@ -1017,6 +1017,77 @@ func newMockController(t *testing.T) *httptest.Server {
 		}
 	})
 
+	// Disable-NAT rules. The asymmetric paths are the point of this handler:
+	// the collection is plural (disable-nats) while create and the item path
+	// are singular (disable-nat, disable-nat/{id}), and update is PUT — PATCH
+	// is rejected, exactly as the controller does.
+	disableNats := map[string]map[string]any{}
+	dnNext := 1
+	const dnList = "/abc123/api/v2/sites/site-1/setting/wired-networks/disable-nats"
+	const dnItem = "/abc123/api/v2/sites/site-1/setting/wired-networks/disable-nat"
+	mux.HandleFunc(dnList, func(w http.ResponseWriter, r *http.Request) {
+		if !requireToken(w, r) {
+			return
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		data := make([]map[string]any, 0, len(disableNats))
+		for _, d := range disableNats {
+			data = append(data, d)
+		}
+		writeEnvelope(w, 0, "", map[string]any{
+			"totalRows": len(data), "currentPage": 1, "currentSize": 100, "data": data,
+		})
+	})
+	mux.HandleFunc(dnItem, func(w http.ResponseWriter, r *http.Request) {
+		if !requireToken(w, r) {
+			return
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		if r.Method != http.MethodPost {
+			writeEnvelope(w, -1600, "Unsupported request path.", nil)
+			return
+		}
+		var in map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&in)
+		iface, _ := in["interface"].(string)
+		// One rule per WAN port, like the real controller.
+		for _, d := range disableNats {
+			if cur, _ := d["interface"].(string); cur == iface {
+				writeEnvelope(w, -34247, "Only one Disable NAT rule is allowed for one WAN port.", nil)
+				return
+			}
+		}
+		id := fmt.Sprintf("dn-%d", dnNext)
+		dnNext++
+		in["id"] = id
+		disableNats[id] = in
+		// The controller does not echo the object; the client resolves by name.
+		writeEnvelope(w, 0, "", nil)
+	})
+	mux.HandleFunc(dnItem+"/", func(w http.ResponseWriter, r *http.Request) {
+		if !requireToken(w, r) {
+			return
+		}
+		id := strings.TrimPrefix(r.URL.Path, dnItem+"/")
+		mu.Lock()
+		defer mu.Unlock()
+		switch r.Method {
+		case http.MethodDelete:
+			delete(disableNats, id)
+			writeEnvelope(w, 0, "", nil)
+		case http.MethodPut:
+			var in map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&in)
+			in["id"] = id
+			disableNats[id] = in
+			writeEnvelope(w, 0, "", in)
+		default: // PATCH and anything else
+			writeEnvelope(w, -1600, "Unsupported request path.", nil)
+		}
+	})
+
 	mux.HandleFunc("/debug/singletons", func(w http.ResponseWriter, _ *http.Request) {
 		mu.Lock()
 		defer mu.Unlock()
