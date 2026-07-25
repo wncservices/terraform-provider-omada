@@ -1,0 +1,66 @@
+name: Security
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  schedule:
+    # Weekly. Both jobs below can start failing without any code change —
+    # a new CVE lands in the Go vulnerability database, or CodeQL ships a new
+    # query — so they must run on a timer, not only on pushes.
+    - cron: "27 4 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  codeql:
+    name: CodeQL
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+      security-events: write # required to upload results to the Security tab
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Initialise CodeQL
+        uses: github/codeql-action/init@v4
+        with:
+          languages: go
+          # security-extended adds lower-severity and precision queries on top
+          # of the default set; the codebase is small enough to absorb them.
+          queries: security-extended
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@v4
+      - name: Analyse
+        uses: github/codeql-action/analyze@v4
+        with:
+          category: /language:go
+
+  govulncheck:
+    name: govulncheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      # Deliberately no actions/setup-go here: govulncheck-action installs Go
+      # itself from go-version-file and restores its own module cache. Adding
+      # a cached setup-go step makes both restore over the same paths, and the
+      # second extraction dies with "tar: ... Cannot open: File exists".
+      #
+      # Checks the Go vulnerability database. Unlike a plain dependency audit
+      # it does reachability analysis, so it only reports a CVE when the
+      # vulnerable symbol is actually called — few enough false positives to
+      # justify failing the build.
+      - name: Run govulncheck
+        uses: golang/govulncheck-action@v1
+        with:
+          go-version-file: go.mod
