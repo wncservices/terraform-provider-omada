@@ -364,11 +364,33 @@ are an afternoon each — write a `settingsSpec` and a mock handler.
 | `/setting/upnp` | `PUT` | `omada_upnp` | single `enable` |
 | `/setting/snmp` | `PUT` | `omada_snmp` | v1/v2c/v3, security level, auth/privacy mode |
 | `/setting/firewall/macfilter` | — | `omada_mac_filter` | |
-| `/setting/service/dhcp` | — | `omada_dhcp_reservation` | paginated list of **DHCP reservations** (`netId`, `mac`, `ip`, `status`, `name`, `exportToIpMacBinding`, `options`). 13 live on the dev site; several keys (`netName`, `serverName`, `serverMac`, `abnormal`, `showingType`) are derived and must not be written back |
+| `/setting/service/dhcp` | ⚠️ **blocked** | `omada_dhcp_reservation` | see the warning below — **do not implement yet** |
 | `/setting/service/ddns` | — | `omada_ddns` | paginated list |
 | `/setting/service/rebootSchedules`, `/setting/service/poeSchedules` | — | schedules | paginated lists |
 | `/setting/transmission/sessionLimits`, `/setting/transmission/bandwidthControls` | — | QoS-ish | |
 | `/setting/transmission/policyRoutings` | — | `omada_policy_route` | paginated list; complements `omada_static_route` |
+
+⚠️ **DHCP reservations (`/setting/service/dhcp`) must not be implemented yet.**
+`POST` works and returns the new id as a bare string. But **no update route was
+found** — `PATCH /{id}` answers `-1600`, `PUT /{id}` answers `-1001 DHCP
+Reservation is not exist, please check path param` even with a correct id — and,
+worse, **`DELETE /{id}` returns `errorCode: 0` while deleting nothing.** That
+was confirmed repeatedly against a live controller, including re-reading the
+list after a delay; `?netId=`, `{netId}/{id}`, `?ids=`, `/batch`,
+`/batch-delete`, `/remove` and a body-carrying `DELETE` were all tried.
+
+A resource built on that would be actively harmful: Terraform would take the
+`0` at face value, drop the object from state, and orphan it on the controller
+— state and reality diverging silently, which is worse than having no resource
+at all. **Do not ship it until the UI's own edit and delete requests have been
+captured** and the real routes are known.
+
+Fields (from a live create): writable `netId`, `mac`, `ip`, `status`, `name`,
+`options`, `type`; derived and never to be written back: `netName`,
+`clientName`, `serverName`, `serverType`, `serverMac`, `abnormal`,
+`showingType`, `existOptions`. Note `exportToIpMacBinding` is **forced to
+`true`** by the controller regardless of what is sent, so it cannot be modelled
+as a plain writable bool.
 
 ⚠️ **`radiusPwd` must be write-only.** The controller returns the RADIUS shared
 secret in **plaintext** on read, exactly like the WiFi `psk`. Per §2.6 that means
