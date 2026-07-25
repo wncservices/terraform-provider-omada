@@ -406,6 +406,37 @@ secret in **plaintext** on read, exactly like the WiFi `psk`. Per §2.6 that mea
 it is never read into state — model it write-only, deep-merge it on update, and
 add it to `ImportStateVerifyIgnore`.
 
+### 5.8a IPS allow/block lists — read paths known, write shape not
+
+`omada_ips` covers the IPS *settings*. The per-entry lists beside them are
+mapped but **not implemented**, because the create payload could not be
+recovered without a UI capture:
+
+| Call | Result |
+|---|---|
+| `GET /setting/ips/grid/blacklist` | paginated envelope, empty on the dev site |
+| `GET /setting/ips/grid/whitelist` | paginated envelope, empty on the dev site |
+| `POST /setting/ips/whitelist` | **real route** — answers `-1001`, so it exists |
+| `POST /setting/ips/blacklist` | `-1600` — no such route |
+| `PUT`/`PATCH`/`DELETE /setting/ips/whitelist` | `-1600` |
+
+Two things follow. The `/grid/` paths look like read-only views for the UI
+table — `POST` to them is `-1600`. And only the **whitelist** is writable at
+all, which fits the feature: the engine populates the blacklist as it blocks
+things, and the practitioner whitelists false positives.
+
+Unlike `otonats`, whose validation errors named the missing fields outright
+("External Ip", "Wan ports"), this endpoint answers a flat
+`-1001 Invalid request parameters.` to everything. Ten candidate shapes were
+tried — `ip`, `name`+`ip`, `type`+`value`, `signatureId`, `sid`, `category`,
+`ipList`, `entries`, `name`+`description`+`ip`, `mac` — all identical, so there
+is nothing to iterate against and no list contents to infer a shape from.
+
+**To implement:** capture the UI's `POST` when adding an IPS whitelist entry.
+That gives the field names outright. A read-only data source over the two grids
+is possible today, but both lists are empty on the dev site, so the item shape
+would be guesswork too.
+
 ### 5.9 NAT gaps — disable-NAT shipped, one-to-one NAT blocked by hardware
 
 Both paths came from UI captures; probing could never have found them because
