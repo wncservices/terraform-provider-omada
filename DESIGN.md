@@ -431,10 +431,22 @@ real vocabulary (traffic direction/source/type) shares no words with any of
 them. Only a UI capture of the `POST` body settled it. When an endpoint's
 errors name nothing and its list is empty, stop guessing and capture.
 
-The **blacklist** (`/setting/ips/grid/blacklist`) has no write route at all
-(`POST` → `-1600`), consistent with the engine populating it as it blocks and
-the practitioner whitelisting false positives. A read-only data source over it
-is possible; it was empty on the dev site, so the item shape is still unknown.
+Two neighbouring endpoints are **read-only and empty**, so neither is
+implemented:
+
+- `/setting/ips/grid/blacklist` — no write route (`POST` → `-1600`),
+  consistent with the engine populating it as it blocks while the practitioner
+  whitelists false positives.
+- `/setting/ips/signature` — paginated, but returns zero rows on the dev site
+  under every filter tried (`category`, `categoryId`, `level`, `type`,
+  `dpLevel`, `searchKey`, `all`), and **all four write verbs answer `-1600`**.
+  No sibling endpoint exposes a signature-database version or status either.
+
+Both look event-driven: they fill in as the IPS matches traffic. A read-only
+data source over either is straightforward *once a row exists* — until then the
+item shape would be guesswork, which is the same trap §5.8a was written about.
+If you need one, generate an event first (or capture the UI's request while its
+table has rows) and the shape follows.
 
 ### 5.9 NAT gaps — disable-NAT shipped, one-to-one NAT blocked by hardware
 
