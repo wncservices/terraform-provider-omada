@@ -48,6 +48,8 @@ const (
 	kindIntListRO
 	// kindString is an ordinary string setting.
 	kindString
+	// kindStringList is a list of strings, e.g. a set of object ids.
+	kindStringList
 	// kindStringWO is a secret: a Terraform write-only attribute. The value is
 	// supplied on apply and never persisted to state or plan, because the
 	// controller returns secrets like the SNMP v3 password in plaintext on
@@ -162,6 +164,12 @@ func (r *settingsResource) Schema(_ context.Context, _ resource.SchemaRequest, r
 			attrs[f.attr] = schema.StringAttribute{
 				Optional: true, Sensitive: true, WriteOnly: true, MarkdownDescription: f.desc,
 			}
+		case kindStringList:
+			attrs[f.attr] = schema.ListAttribute{
+				ElementType: types.StringType,
+				Optional:    true, Computed: true, MarkdownDescription: f.desc,
+				PlanModifiers: []planmodifier.List{listplanmodifier.UseStateForUnknown()},
+			}
 		case kindIntList, kindIntListRO:
 			attrs[f.attr] = schema.ListAttribute{
 				ElementType: types.Int64Type,
@@ -233,6 +241,20 @@ func (r *settingsResource) fieldsFrom(ctx context.Context, src, cfg attrGetter, 
 			if !v.IsNull() && !v.IsUnknown() {
 				out[f.key] = v.ValueInt64()
 			}
+		case kindStringList:
+			var v types.List
+			diags.Append(src.GetAttribute(ctx, path.Root(f.attr), &v)...)
+			if diags.HasError() {
+				return nil
+			}
+			if !v.IsNull() && !v.IsUnknown() {
+				vals, d := stringSlice(ctx, v)
+				diags.Append(d...)
+				if diags.HasError() {
+					return nil
+				}
+				out[f.key] = nilToEmpty(vals)
+			}
 		case kindIntList:
 			var v types.List
 			diags.Append(src.GetAttribute(ctx, path.Root(f.attr), &v)...)
@@ -280,6 +302,20 @@ func (r *settingsResource) refresh(ctx context.Context, doc map[string]any, dst 
 				v = types.Int64Value(int64(n))
 			}
 			diags.Append(dst.SetAttribute(ctx, path.Root(f.attr), v)...)
+		case kindStringList:
+			items, _ := raw.([]any)
+			vals := make([]string, 0, len(items))
+			for _, it := range items {
+				if str, ok := it.(string); ok {
+					vals = append(vals, str)
+				}
+			}
+			lv, d := stringListValue(ctx, vals)
+			diags.Append(d...)
+			if diags.HasError() {
+				return
+			}
+			diags.Append(dst.SetAttribute(ctx, path.Root(f.attr), lv)...)
 		case kindIntList, kindIntListRO:
 			items, _ := raw.([]any)
 			vals := make([]int, 0, len(items))

@@ -9,7 +9,7 @@ shapes are derived from the UI. This is deliberate: it's the only surface with f
 config coverage, including gateway/router settings that other providers omit.
 
 > **Status: released.** `v0.6.1` is the current release on the Terraform Registry —
-> **31 resources** (table below) + 6 data sources, each with acceptance tests in
+> **32 resources** (table below) + 6 data sources, each with acceptance tests in
 > CI. Verified against a live Omada v6.2 controller.
 
 **Contributing?** See [`DESIGN.md`](DESIGN.md) for the architecture, the coverage
@@ -42,6 +42,7 @@ without reading the whole repo first.
 | `omada_upnp` | singleton, read/update verified live ✅; single `enable` |
 | `omada_alg` | singleton, read/update verified live ✅; FTP/H.323/PPTP/IPsec/SIP application-layer gateways |
 | `omada_ssh_settings` | singleton, read/update verified live ✅; SSH to managed devices |
+| `omada_mac_auth` | singleton, read/update verified live ✅; MAC-based auth against RADIUS |
 | `omada_dot1x` | singleton, read/update verified live ✅; site-wide 802.1X (RADIUS profile not yet modelled) |
 | `omada_service_type` | custom protocol/port profile, full CRUD verified live ✅; built-ins reported read-only |
 | `omada_qos_bandwidth_control` | gateway QoS shaping, full CRUD verified live ✅; one rule per WAN port |

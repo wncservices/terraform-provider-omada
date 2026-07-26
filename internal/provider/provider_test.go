@@ -885,6 +885,7 @@ func newMockController(t *testing.T) *httptest.Server {
 		"firewall/macfilter":     http.MethodPut,
 		"ssh":                    http.MethodPut,
 		"dot1x":                  http.MethodPatch,
+		"macAuth":                http.MethodPatch,
 		"ips":                    http.MethodPatch,
 		"snmp":                   http.MethodPut,
 		"upnp":                   http.MethodPut,
@@ -915,6 +916,10 @@ func newMockController(t *testing.T) *httptest.Server {
 		},
 		"firewall/macfilter": {"enable": false, "unmodelledKey": "keep-me"},
 		"upnp":               {"enable": false, "unmodelledKey": "keep-me"},
+		"macAuth": {
+			"enable": false, "authType": float64(0), "ssids": []any{},
+			"unmodelledKey": "keep-me",
+		},
 		// IPS. The *Categories lists are controller-owned reference data: the
 		// provider must report them but never send them, so this handler
 		// rejects a write that includes one.

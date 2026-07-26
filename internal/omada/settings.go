@@ -53,6 +53,8 @@ var (
 	Dot1XSetting = SettingDoc{Path: "/setting/dot1x", Verb: http.MethodPatch}
 	// Wireless MAC filtering. PUT.
 	MACFilterSetting = SettingDoc{Path: "/setting/firewall/macfilter", Verb: http.MethodPut}
+	// MAC-based authentication. PATCH, like dot1x.
+	MACAuthSetting = SettingDoc{Path: "/setting/macAuth", Verb: http.MethodPatch}
 	// UPnP. PUT, and a single field.
 	UPnPSetting = SettingDoc{Path: "/setting/upnp", Verb: http.MethodPut}
 	// IPS/IDS. PATCH, like dot1x. The *Categories lists describe which
