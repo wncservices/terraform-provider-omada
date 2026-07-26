@@ -54,7 +54,10 @@ var (
 	// IPS/IDS. PATCH, like dot1x. The *Categories lists describe which
 	// signature categories each protection level covers — reference data the
 	// controller maintains, not configuration.
-	IPSSetting = SettingDoc{
+	// SNMP. PUT, and note the read returns the v3 password in plaintext — see
+	// the write-only handling in the resource.
+	SNMPSetting = SettingDoc{Path: "/setting/snmp", Verb: http.MethodPut}
+	IPSSetting  = SettingDoc{
 		Path: "/setting/ips", Verb: http.MethodPatch,
 		ReadOnlyKeys: []string{"lowCategories", "mediumCategories", "highCategories", "allCategories"},
 	}

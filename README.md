@@ -9,7 +9,7 @@ shapes are derived from the UI. This is deliberate: it's the only surface with f
 config coverage, including gateway/router settings that other providers omit.
 
 > **Status: released.** `v0.4.0` is the current release on the Terraform Registry —
-> **24 resources** (table below) + 6 data sources, each with acceptance tests in
+> **25 resources** (table below) + 6 data sources, each with acceptance tests in
 > CI. Verified against a live Omada v6.2 controller.
 
 **Contributing?** See [`DESIGN.md`](DESIGN.md) for the architecture, the coverage
@@ -36,6 +36,7 @@ without reading the whole repo first.
 | `omada_portal` | captive portal; full CRUD verified live ✅; `password` is write-only; landing-page design preserved |
 | `omada_attack_defense` | singleton, read/update verified live ✅; flood defense, packet anomaly, IPv4 options |
 | `omada_ips_whitelist` | IPS exemption entry; create/list/delete verified live ✅; **no update verb — every field replaces** |
+| `omada_snmp` | singleton, read/update verified live ✅; v1/v2c + v3; community string and v3 password are **write-only** |
 | `omada_ips` | singleton, read/update verified live ✅; IPS/IDS mode, protection level, geo-blocking; category lists exposed read-only |
 | `omada_alg` | singleton, read/update verified live ✅; FTP/H.323/PPTP/IPsec/SIP application-layer gateways |
 | `omada_ssh_settings` | singleton, read/update verified live ✅; SSH to managed devices |
@@ -55,7 +56,8 @@ against a real v6.2 controller with throwaway objects (created and deleted).
 ## Secrets
 
 Every secret this provider accepts — the WiFi `psk`, the captive-portal
-`password`, and a RADIUS `shared_secret` — is a Terraform **write-only**
+`password`, a RADIUS `shared_secret`, and the SNMP community string and v3
+password — is a Terraform **write-only**
 attribute. The value is supplied on apply and is never persisted to state or
 plan, which matters because the controller returns WiFi keys and RADIUS secrets
 in **plaintext** on read.
