@@ -206,6 +206,7 @@ preserved via read-modify-write.
 | `omada_alg` | R/U (singleton) | live | FTP/H.323/PPTP/IPsec/SIP ALGs; update is `PUT` |
 | `omada_ssh_settings` | R/U (singleton) | live | device SSH; update is `PUT` |
 | `omada_dot1x` | R/U (singleton) | live | site-wide 802.1X; update is `PATCH` |
+| `omada_rate_limit_profile` | CRUD | live | bare-array list; a limit is absent while its enable flag is false |
 | `omada_service_type` | CRUD | live | create returns the id as a **bare string**; update is `PUT` |
 | `omada_qos_bandwidth_control` | CRUD | live | one rule per WAN port (`-43310`); create returns null, resolved by WAN |
 | `omada_time_range` | CRUD | live | schedule profile; create returns `profileId`; list has no `totalRows` |
@@ -346,7 +347,7 @@ Every configuration endpoint found on the controller, and where it stands.
 | `/setting/profiles/groups` | ✅ `omada_ip_group`, `omada_port_group` |
 | `/setting/profiles/timeranges` | ✅ `omada_time_range` |
 | `/setting/profiles/service-type` | ✅ `omada_service_type` |
-| `/setting/profiles/rateLimits` | ❌ §5.2 |
+| `/setting/profiles/rateLimits` | ✅ `omada_rate_limit_profile` |
 | `/setting/profiles/apns` | ❌ §5.2 — cellular APNs |
 | `/setting/service/mdns` | ✅ `omada_mdns_reflector` |
 | `/setting/service/dhcp` | ✅ `omada_dhcp_reservation` |
@@ -401,7 +402,6 @@ controller returned.
 | `omada_mac_filter` | `/setting/firewall/macfilter` | `{enable, specification}` |
 | `omada_session_limit` | `/setting/transmission/sessionLimits` | `{sessionLimitEnable, sessionLimitMaxSize, ipSessionEnable}` + a nested `table` of per-host rules |
 | `omada_gateway_bandwidth_control` | `/setting/transmission/bandwidthControls` | `{bandwidthControlEnable, thresholdControlEnable, thresholdValue}` + nested `table`. **Distinct from** `/setting/qos/gateway/bwc` |
-| `omada_rate_limit_profile` | `/setting/profiles/rateLimits` | array; `{name, downLimitEnable, upLimitEnable, isDefault}` — `isDefault` is controller-owned |
 | `omada_policy_route` | `/setting/transmission/policyRoutings` | paginated, empty on the dev site — needs one entry or a capture for the item shape |
 | `omada_ddns` | `/setting/service/ddns` | paginated, empty; `support*` flags indicate TP-Link DDNS + custom providers |
 | `omada_reboot_schedule`, `omada_poe_schedule` | `/setting/service/rebootSchedules`, `/poeSchedules` | paginated, empty; pair naturally with `omada_time_range` |
