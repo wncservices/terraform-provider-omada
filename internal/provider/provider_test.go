@@ -1306,6 +1306,71 @@ func newMockController(t *testing.T) *httptest.Server {
 		writeEnvelope(w, 0, "", nil)
 	})
 
+	// Notification documents. PATCH-only with the whole document, and the
+	// point of the handler is the keyed entry lists: the provider must patch
+	// individual entries by key and leave every other entry — and the
+	// controller-owned descriptive fields — untouched.
+	notifications := map[string]any{
+		"alertEmailSetting": map[string]any{"alertEmailEnable": false, "delayEnable": false, "delay": float64(60)},
+		"eventEmailSetting": map[string]any{"eventEmailEnable": false, "delayEnable": false, "delay": float64(60)},
+		"webhookSetting":    map[string]any{"webhookEnable": false},
+		"recipients":        []any{},
+		"alertNotifications": []any{
+			map[string]any{"key": "OSW_DET_STORM", "shortMsg": "Switch Detected Storm", "module": "Device",
+				"email": true, "webhook": false, "enable": true, "level": "Warning", "deviceTypes": []any{"switch"}},
+			map[string]any{"key": "OSW_DET_LOOP", "shortMsg": "Switch Detected Loop", "module": "Device",
+				"email": false, "webhook": false, "enable": true, "level": "Warning", "deviceTypes": []any{"switch"}},
+		},
+		"eventNotifications": []any{
+			map[string]any{"key": "DEV_IP_C", "shortMsg": "Device IP Changed", "module": "Device",
+				"email": false, "webhook": false, "enable": false, "deviceTypes": []any{"ap", "gateway"}},
+		},
+	}
+	auditNotifications := map[string]any{
+		"webhookSetting": map[string]any{"webhookEnable": false},
+		"logNotifications": []any{
+			map[string]any{"key": "AUTHENTICATION", "shortMsg": "Authentication", "webhook": false},
+			map[string]any{"key": "CLIENTS", "shortMsg": "Clients", "webhook": false},
+		},
+	}
+	notifDoc := func(store map[string]any) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			if !requireToken(w, r) {
+				return
+			}
+			mu.Lock()
+			defer mu.Unlock()
+			switch r.Method {
+			case http.MethodGet:
+			case http.MethodPatch:
+				var in map[string]any
+				_ = json.NewDecoder(r.Body).Decode(&in)
+				if len(in) == 0 {
+					writeEnvelope(w, -1001, "Invalid request parameters.", nil)
+					return
+				}
+				for k, v := range in {
+					store[k] = v
+				}
+			default:
+				writeEnvelope(w, -1600, "Unsupported request path.", nil)
+				return
+			}
+			out := map[string]any{"resource": float64(0)}
+			for k, v := range store {
+				out[k] = v
+			}
+			writeEnvelope(w, 0, "", out)
+		}
+	}
+	mux.HandleFunc("/abc123/api/v2/sites/site-1/logs/notification", notifDoc(notifications))
+	mux.HandleFunc("/abc123/api/v2/sites/site-1/site/audit-notification", notifDoc(auditNotifications))
+	mux.HandleFunc("/debug/notifications", func(w http.ResponseWriter, _ *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		_ = json.NewEncoder(w).Encode(map[string]any{"logs": notifications, "audit": auditNotifications})
+	})
+
 	mux.HandleFunc("/debug/singletons", func(w http.ResponseWriter, _ *http.Request) {
 		mu.Lock()
 		defer mu.Unlock()
