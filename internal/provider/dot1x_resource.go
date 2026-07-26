@@ -13,10 +13,10 @@ import (
 // (Settings -> Authentication -> 802.1X).
 //
 // This is the site-level switch and its global options only. The RADIUS server
-// it authenticates against is a separate object (`/setting/radiusProfiles`,
-// see DESIGN.md §5.8) and per-port 802.1X control belongs to the switch port
-// configuration, neither of which is modelled yet — so enabling this from
-// Terraform alone is not sufficient to get a working deployment.
+// it authenticates against is a separate object — see `omada_radius_profile` —
+// and per-port 802.1X control belongs to the switch port configuration, which
+// is not modelled yet (DESIGN.md §5.5). So this resource alone is not
+// sufficient for a working deployment.
 func NewDot1XResource() resource.Resource {
 	return newSettingsResource(settingsSpec{
 		typeName: "dot1x",

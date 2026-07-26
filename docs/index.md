@@ -16,7 +16,7 @@ terraform {
   required_providers {
     omada = {
       source  = "wncservices/omada"
-      version = "~> 0.1"
+      version = "~> 0.6"
     }
   }
 }

@@ -150,6 +150,31 @@ relevant resource.
   some delete at `/{id}`, some at `/{type}/{id}`. Static routes reject `PATCH`
   outright (`-1600`). Never assume — confirm against the live controller.
 
+### 2.7 Sparse keyed collections
+
+Some documents carry a long list of keyed entries where most of each entry is
+description rather than configuration. `/logs/notification` has 63 alert and 68
+event notifications, each `{key, shortMsg, module, level, deviceTypes, email,
+webhook, enable}` — only the last three are settings.
+
+Modelling that as a list would force a configuration to restate 131 entries and
+would let a stale config silently revert entries it did not mean to touch. The
+pattern used instead, worth copying for anything similar:
+
+- expose a **map keyed by the controller's own key**, marked `Optional`;
+- patch entries **in place by key** during the read-modify-write, leaving every
+  other entry and every unmodelled field untouched;
+- refresh **only the declared keys**, so a sparse config stays sparse;
+- make the per-entry toggles `Optional` and **not** `Computed`, and refresh only
+  the ones actually set. Nested `Computed` attributes inside an `Optional` map
+  are planned as null rather than unknown, so filling them fails as an
+  inconsistent apply.
+
+The cost is that `terraform import` cannot populate the map — which of the 131
+you intend to manage is not discoverable — so an import is followed by a
+one-time diff adding the declared entries. That is inherent, and the acceptance
+tests use `ImportStateVerifyIgnore` for those attributes.
+
 ---
 
 ## 3. Coverage matrix
@@ -275,300 +300,207 @@ done by hand via the `dev_overrides` flow (README → Local development).
 
 ---
 
-## 5. What's missing — the roadmap
+## 5. What's left — the road to "complete"
 
-Ordered roughly by value. Each item has enough detail to start. "Good first
-contribution" items are marked 🟢.
+"Complete" here means: **every configuration surface the Omada v6 web UI
+exposes for a site can be managed declaratively.** Read-only telemetry, one-shot
+actions and per-client runtime state are out of scope (§5.7).
 
-### 5.1 Network **create** (the big one)
+Everything below was established against a live v6.2.14 controller
+(ER707-M2 gateway, ES205GP switches, EAP610 APs). An endpoint's absence from
+this list means it was not found — not that it does not exist.
 
-**Status:** import/read/update/delete work; create does not.
-**Why:** the UI creates networks through the official Omada **OpenAPI**
-(`/openapi/v1/{omadacId}/sites/{siteId}/networks` → `…/confirm`), which needs
-**client-credentials auth** — a separate OAuth-style token flow, distinct from the
-web-API session handshake. The `/api/v2` create endpoint rejects the call (it
-demands write-only fields like `proto`).
-**To implement:**
-- Add an OpenAPI auth path to the client (register an Open API app under *Controller
-  → Settings → Platform Integration → Open API*, exchange client id/secret for a
-  bearer token, refresh on expiry).
-- Wire `omada_network`'s `Create` to the OpenAPI create+confirm; keep read/update/
-  delete on `/api/v2` (they work).
-- Gate it so existing import-only users are unaffected.
-This is the single most-requested capability and the main reason the provider
-exists. Largest task on the list.
+### 5.0 Coverage audit
 
-### 5.2 VPN write verbs (`omada_vpn`)
+Every configuration endpoint found on the controller, and where it stands.
 
-**Status:** the read shape is live-verified, but create/update/delete were
-**never exercised on hardware** (the homelab had its only VPN removed). The verbs
-in `vpn.go` are inferred.
-**To implement:** on a controller with a VPN configured, run a throwaway
-create/update/delete for each VPN type the controller supports (IPsec / WireGuard;
-OpenVPN is gone in v6.2), confirm the verbs and payloads, then flip the README/matrix
-note to "live" and widen the modelled field set beyond `name`/`enable`.
-
-### 5.3 Firewall ACL port/device scoping 🟢
-
-**Status:** the common case is covered — port-scoped rules use a reusable
-**port group** (`omada_port_group`, a type-1 profile group) referenced from the
-ACL via `source_type`/`destination_type = 2`. Both shipped and verified live
-(zero-diff import of a real port group + the ACL that references it).
-
-Still open: the ACL's **inline** `customAclPorts` / `customAclDevices` fields —
-ports/devices specified on the rule itself rather than through a group — are sent
-empty. On a v6.2 controller the UI populates these only in specific modes; every
-live rule tested had them empty, so the populated payload shape is still
-uncaptured. It may not be capturable on all hardware: the ER707-M2 used for
-development reports **`customAcl: false`** in `/setting/capacity`, i.e. the
-gateway does not offer inline ACL ports at all. **To implement:** on a gateway
-whose capacity reports `customAcl: true`, capture the shape from a rule that
-uses inline ports (not a group), then model both as nested lists on
-`omada_firewall_acl`.
-
-### 5.4 Writable WAN (`omada_wan`) — deliberately deferred
-
-**Status:** read-only data source, on purpose.
-**Why deferred:** `/setting/wan/networks` is one large document mixing config with
-read-only `support*` capability flags, and its write verbs are undocumented. Unlike
-every other endpoint, the write path **cannot be validated with a throwaway** — the
-only WAN object is the live one, and a bad write drops the site's internet
-(including the controller you'd fix it from).
-**If someone takes it on:** do it against a controller you have console/out-of-band
-access to, in a maintenance window; model a *narrow* writable subset (e.g. MTU,
-VLAN tag) rather than the whole document; keep the data source as-is.
-
-### 5.5 Device-level resources — `omada_device_switch`, `omada_device_ap` 🟢 (per field)
-
-**Status:** read-only inventory shipped — the `omada_devices` data source over
-`GET /api/v2/sites/{site}/devices` lists gateways/switches/APs (name, type, model,
-mac, ip, firmware, uptime, client count, upgrade flag). Per-device *config*
-(individual switch-port overrides, AP radio/power settings, per-device names) is
-still not started.
-**To implement:** add per-device config resources on top of the data source one
-capability at a time. Each capability is a small task; the umbrella is large.
-
-### 5.6a Captive-portal landing page / background image 🟢
-
-**Status:** `omada_portal` covers the functional settings. The landing-page design
-(`portalCustomize`: logo, colours, terms of service, background) is deep-merged and
-therefore preserved, but not manageable from Terraform.
-**To implement a background image:** the controller keeps portal images in a media
-library — `portalCustomize.background`, `backgroundPictureIndex` and the
-`bgPicCoordinatesOfLibrary` / `mobileBgPicCoordinatesOfLibrary` crop rectangles
-reference it, and `/setting/portals/media` exists (a bare GET returns `-34326`,
-i.e. the path is valid but wants parameters). Needs the multipart upload captured
-from the UI, then a resource (or a `background_image` attribute taking a local file
-path + hash) that uploads and references the picture index.
-
-### 5.5a Sparse keyed collections — the notification pattern
-
-Some documents carry a long list of keyed entries where most of each entry is
-description rather than configuration. `/logs/notification` has 63 alert and 68
-event notifications, each `{key, shortMsg, module, level, deviceTypes, email,
-webhook, enable}` — only the last three are settings.
-
-Modelling that as a list would force a configuration to restate 131 entries and
-would let a stale config silently revert entries it did not mean to touch. The
-pattern used instead, worth copying for anything similar:
-
-- expose a **map keyed by the controller's own key**, marked `Optional`;
-- patch entries **in place by key** during the read-modify-write, leaving every
-  other entry and every unmodelled field untouched;
-- refresh **only the declared keys**, so a sparse config stays sparse;
-- make the per-entry toggles `Optional` and **not** `Computed`, and refresh only
-  the ones actually set. Nested `Computed` attributes inside an `Optional` map
-  are planned as null rather than unknown, so filling them fails as an
-  inconsistent apply.
-
-The cost is that `terraform import` cannot populate the map — which of the 131
-you intend to manage is not discoverable — so an import is followed by a
-one-time diff adding the declared entries. That is inherent, and the acceptance
-tests use `ImportStateVerifyIgnore` for those attributes.
-
-### 5.6 Smaller gaps 🟢
-
-- **SSID sub-features:** captive **portal**, **WLAN schedules**, **MAC filters** are
-  referenced by fields but not fully modelled on `omada_wireless_network`.
-- **Site settings breadth:** only ~45 fields of a large object are modelled; add
-  more the same table-driven way (`site_settings_resource.go`).
-- **Policy routes / UPnP:** not modelled at all (static routes are). Capture and add
-  like any other transmission-setting resource.
-- **More data sources:** `omada_port_forwards` and `omada_firewall_acls` shipped
-  (discovery — list objects + IDs for import). `omada_clients` and a
-  device-discovery source (§5.5) are still open.
-
-### 5.7 Client-level: pagination — **done**
-
-Shipped. `internal/omada/pagination.go` provides a generic `listAll[T]` that
-follows `totalRows` across pages; every `List*` method and `RawList` routes
-through it. Endpoints that return a **bare JSON array** rather than a paging
-envelope (`/devices`, `/setting/portals`, `/setting/radiusProfiles`) are decoded
-directly and deliberately bypass the pager.
-
-### 5.8 Endpoints discovered but not yet modelled 🟢
-
-All of these were located and their shape read on a live v6.2 controller
-(ER707-M2 gateway); none is implemented yet. With §2.5's singleton scaffold most
-are an afternoon each — write a `settingsSpec` and a mock handler.
-
-| Endpoint | Verb | Would become | Notes |
-|---|---|---|---|
-| `/setting/radiusProfiles` | POST / `PATCH` / DELETE | `omada_radius_profile` | **list, not singleton**; full CRUD confirmed with a throwaway. Secret is `authServer[].radiusPwd` — see the warning below. Needed to make `omada_dot1x` genuinely usable |
-| `/setting/accessControl` | `PATCH` | `omada_portal_access_control` | Captive-portal pre-auth + free-auth policies (`preAuthAccessPolicies`, `freeAuthClientPolicies` — nested lists, so not a plain `settingsSpec`) |
-| `/setting/macAuth` | `PATCH` | `omada_mac_auth` | MAC-based authentication, incl. `ssids` binding |
-| `/setting/upnp` | `PUT` | `omada_upnp` | single `enable` |
-| `/setting/snmp` | `PUT` | `omada_snmp` | v1/v2c/v3, security level, auth/privacy mode |
-| `/setting/firewall/macfilter` | — | `omada_mac_filter` | |
-| `/setting/service/ddns` | — | `omada_ddns` | paginated list |
-| `/setting/service/rebootSchedules`, `/setting/service/poeSchedules` | — | schedules | paginated lists |
-| `/setting/transmission/sessionLimits`, `/setting/transmission/bandwidthControls` | — | QoS-ish | |
-| `/setting/transmission/policyRoutings` | — | `omada_policy_route` | paginated list; complements `omada_static_route` |
-
-⚠️ **Some item paths are keyed on a natural key, not the id — and a wrong key
-still answers `0`.** DHCP reservations (`omada_dhcp_reservation`) are addressed
-by **MAC**: `PUT`/`DELETE /setting/service/dhcp/{mac}`. Passing the object's
-`id` there returns `errorCode: 0` and does nothing at all, so a resource built
-on the id looks like it works while orphaning objects — this cost a real
-throwaway on the dev controller before the UI capture showed the MAC in the
-path. When a delete "succeeds", confirm by re-reading the list; that resource's
-`Delete` does exactly that and raises an error if the object survives.
-
-Related trap on the same endpoint: `exportToIpMacBinding` is **forced to true**
-by the controller regardless of what is sent, so it is modelled `Computed`
-(reported, not managed) rather than as a writable bool.
-
-⚠️ **`radiusPwd` must be write-only.** The controller returns the RADIUS shared
-secret in **plaintext** on read, exactly like the WiFi `psk`. Per §2.6 that means
-it is never read into state — model it write-only, deep-merge it on update, and
-add it to `ImportStateVerifyIgnore`.
-
-### 5.8a IPS allow/block lists — whitelist shipped, blacklist read-only
-
-The whitelist ships as `omada_ips_whitelist`. Its contract has the asymmetry
-worth remembering:
-
-| Call | Result |
+| Endpoint | Status |
 |---|---|
-| `GET /setting/ips/grid/whitelist` | list (paginated). The `/grid/` path is a **read-only view** for the UI table — anything but GET is `-1600` |
-| `POST /setting/ips/whitelist` | create. Null result; resolve the new id by matching the entry's fields |
-| `DELETE /setting/ips/whitelist/{id}` | delete |
-| `PUT`/`PATCH` anywhere | `-1600` — there is no update verb, and nothing to update |
+| `/setting/lan/networks` | ✅ `omada_network` (**create blocked**, §5.1) |
+| `/setting/lan/dns` | ✅ `omada_lan_dns` |
+| `/setting/lan/profiles` | ✅ `omada_port_profile` (subset) |
+| `/setting/wan/networks` | ⚠️ read-only data source by design (§5.3) |
+| `/setting/wan-ports` | 🚫 **blocked** — query parameter unknown (§5.1) |
+| `/setting/wired-networks/disable-nats` | ✅ `omada_disable_nat` |
+| `/setting/wlans` + `/wlans/{id}/ssids` | ✅ `omada_wlan_group`, `omada_wireless_network` (subset) |
+| `/setting/transmission/portForwardings` | ✅ `omada_port_forward` |
+| `/setting/transmission/staticRoutings` | ✅ `omada_static_route` |
+| `/setting/transmission/alg` | ✅ `omada_alg` |
+| `/setting/transmission/otonats` | 🚫 **blocked** — needs a static-IP WAN (§5.1) |
+| `/setting/transmission/policyRoutings` | ❌ §5.2 |
+| `/setting/transmission/sessionLimits` | ❌ §5.2 |
+| `/setting/transmission/bandwidthControls` | ❌ §5.2 |
+| `/setting/qos/gateway/bwc` | ✅ `omada_qos_bandwidth_control` |
+| `/setting/firewall/acls` | ✅ `omada_firewall_acl` (inline ports: §5.6) |
+| `/setting/firewall/attackdefense` | ✅ `omada_attack_defense` |
+| `/setting/firewall/macfilter` | ❌ §5.2 |
+| `/setting/firewall/urlfilterings` | ❌ §5.2 — needs its query parameter |
+| `/setting/ips` | ✅ `omada_ips` |
+| `/setting/ips/whitelist` | ✅ `omada_ips_whitelist` |
+| `/setting/ips/grid/blacklist`, `/setting/ips/signature` | ⚠️ read-only and empty (§5.4) |
+| `/setting/portals` | ✅ `omada_portal` (landing page: §5.3) |
+| `/setting/accessControl` | ❌ §5.2 — portal pre-auth / free-auth policies |
+| `/setting/dot1x` | ✅ `omada_dot1x` |
+| `/setting/radiusProfiles` | ✅ `omada_radius_profile` |
+| `/setting/macAuth` | ❌ §5.2 |
+| `/setting/profiles/groups` | ✅ `omada_ip_group`, `omada_port_group` |
+| `/setting/profiles/timeranges` | ✅ `omada_time_range` |
+| `/setting/profiles/service-type` | ✅ `omada_service_type` |
+| `/setting/profiles/rateLimits` | ❌ §5.2 |
+| `/setting/profiles/apns` | ❌ §5.2 — cellular APNs |
+| `/setting/service/mdns` | ✅ `omada_mdns_reflector` |
+| `/setting/service/dhcp` | ✅ `omada_dhcp_reservation` |
+| `/setting/service/ddns` | ❌ §5.2 |
+| `/setting/service/rebootSchedules`, `/poeSchedules` | ❌ §5.2 |
+| `/setting/snmp` | ✅ `omada_snmp` |
+| `/setting/ssh` | ✅ `omada_ssh_settings` |
+| `/setting/upnp` | ❌ §5.2 |
+| `/setting/vpns` | ✅ `omada_vpn` (**writes inferred**, §5.3) |
+| `/setting` (site settings) | ✅ `omada_site_settings` (~45 of many fields, §5.3) |
+| `/logs/notification` | ✅ `omada_notification_settings` |
+| `/site/audit-notification` | ✅ `omada_audit_notification` |
+| `/rfPlanning` | ⚠️ an action, not config (§5.4) |
+| per-device configuration | ❌ §5.5 |
 
-An entry is `direction` + `trafficType` + `trafficSource` and nothing else, so
-every field is part of its identity and the resource replaces on any change.
-`trafficType: 1` pairs with a network id.
+Not found despite looking, and so presumably unsupported on this hardware or
+named unlike anything tried: DMZ, port triggering, multi-nets NAT, IPTV,
+IP-MAC binding, switch-side QoS, standalone WLAN schedules and MAC filters.
 
-**How the shape was found matters for the next endpoint like it.** Probing was
-a dead end: this endpoint answers a flat `-1001 Invalid request parameters.` to
-everything, naming no fields, and ten candidate shapes built around `ip`,
-`signatureId`, `category` and friends were all indistinguishable — because the
-real vocabulary (traffic direction/source/type) shares no words with any of
-them. Only a UI capture of the `POST` body settled it. When an endpoint's
-errors name nothing and its list is empty, stop guessing and capture.
+### 5.1 Blocked on something outside the provider
 
-Two neighbouring endpoints are **read-only and empty**, so neither is
-implemented:
+These cannot be finished by writing code alone.
 
-- `/setting/ips/grid/blacklist` — no write route (`POST` → `-1600`),
-  consistent with the engine populating it as it blocks while the practitioner
-  whitelists false positives.
-- `/setting/ips/signature` — paginated, but returns zero rows on the dev site
-  under every filter tried (`category`, `categoryId`, `level`, `type`,
-  `dpLevel`, `searchKey`, `all`), and **all four write verbs answer `-1600`**.
-  No sibling endpoint exposes a signature-database version or status either.
+1. **Network create** — the UI creates networks through the official Omada
+   **OpenAPI** (`/openapi/v1/.../networks/confirm`), which needs
+   client-credentials auth, a different token flow from the web-API session.
+   `/api/v2` rejects the create outright. Import/read/update/delete all work.
+   Needs the OpenAPI auth path added, and an Open API app registered under
+   *Settings → Platform Integration*. **Largest single item on this list.**
+2. **One-to-one NAT** — the field set is complete
+   (`name`, `status`, `externalIp`, `internalIp`, `dmz`, `interfaceIds`), but
+   `-34282` says it requires a **WAN on a static-IP connection**, which the
+   development site does not have. No write path can be exercised, and shipping
+   an untestable NAT write path is how you take someone's internet down.
+3. **`/setting/wan-ports`** — the presumed source of the `1_<hex>` WAN interface
+   ids (§5.8). Exists, but rejects every query parameter tried
+   (none, `type`, `purpose`, `wanType`, `ipv`, `protocol`, `portType`,
+   `ipVersion`, `stack`, pagination) with `-1001`. Cracking it would let
+   `omada_disable_nat`, `omada_qos_bandwidth_control` and one-to-one NAT
+   reference a WAN **by name** instead of an opaque id — the highest-value small
+   win left.
+4. **WLAN optimization** (`/rfPlanning`) — an *action*, not configuration:
+   `PUT /rfPlanning/config` validates the document and persists nothing, and
+   `/rfPlanning/result` reports a job status. Poor fit for Terraform unless the
+   schedule turns out to persist; needs a UI capture of **Save** to tell.
 
-Both look event-driven: they fill in as the IPS matches traffic. A read-only
-data source over either is straightforward *once a row exists* — until then the
-item shape would be guesswork, which is the same trap §5.8a was written about.
-If you need one, generate an event first (or capture the UI's request while its
-table has rows) and the shape follows.
+### 5.2 Mapped, unblocked, ready to implement 🟢
 
-### 5.8b The `1_<hex>` WAN interface id
+Each was found and read on hardware. Most are a `settingsSpec` on the singleton
+scaffold (§2.5) or a small CRUD resource; the shapes below are what the live
+controller returned.
 
-Three separate features identify a WAN port by the same opaque
+| Would become | Endpoint | Shape / notes |
+|---|---|---|
+| `omada_upnp` | `/setting/upnp` `PUT` | `{enable}` — trivial |
+| `omada_mac_auth` | `/setting/macAuth` `PATCH` | `{enable, authType, ssids[]}` |
+| `omada_mac_filter` | `/setting/firewall/macfilter` | `{enable, specification}` |
+| `omada_session_limit` | `/setting/transmission/sessionLimits` | `{sessionLimitEnable, sessionLimitMaxSize, ipSessionEnable}` + a nested `table` of per-host rules |
+| `omada_gateway_bandwidth_control` | `/setting/transmission/bandwidthControls` | `{bandwidthControlEnable, thresholdControlEnable, thresholdValue}` + nested `table`. **Distinct from** `/setting/qos/gateway/bwc` |
+| `omada_rate_limit_profile` | `/setting/profiles/rateLimits` | array; `{name, downLimitEnable, upLimitEnable, isDefault}` — `isDefault` is controller-owned |
+| `omada_policy_route` | `/setting/transmission/policyRoutings` | paginated, empty on the dev site — needs one entry or a capture for the item shape |
+| `omada_ddns` | `/setting/service/ddns` | paginated, empty; `support*` flags indicate TP-Link DDNS + custom providers |
+| `omada_reboot_schedule`, `omada_poe_schedule` | `/setting/service/rebootSchedules`, `/poeSchedules` | paginated, empty; pair naturally with `omada_time_range` |
+| `omada_portal_access_control` | `/setting/accessControl` `PATCH` | `{preAuthAccessEnable, preAuthAccessPolicies[], freeAuthClientEnable, freeAuthClientPolicies[]}` — nested policy lists, so not a plain `settingsSpec` |
+| `omada_url_filter` | `/setting/firewall/urlfilterings` | **needs its query parameter** — answers `-1001` to every one tried |
+| `omada_apn_profile` | `/setting/profiles/apns` | cellular APNs; only relevant with an LTE/5G WAN |
+
+The empty ones share a trap worth naming: with no stored row, the item shape is
+guesswork. Either create one entry in the UI first, or capture the `POST` — see
+§4 on why probing alone stalls on endpoints whose validation names no fields.
+
+### 5.3 Breadth inside resources that already exist
+
+- **`omada_site_settings`** models ~45 fields of a large object. Add more the
+  same table-driven way. Note `remoteLog` holds only `{enable}` while remote
+  logging is off — the syslog server fields appear once enabled, so pinning
+  `remote_log_port` today can diff against a controller that omits it.
+- **`omada_wireless_network`** and **`omada_port_profile`** model practical
+  subsets. Unmodelled fields are preserved by read-modify-write, never blanked.
+- **`omada_vpn`** manages only `name`/`enable`, and its write verbs are
+  **inferred** — the read shape is live-verified but create/update/delete were
+  never exercised, because the dev site's only VPN was removed. Prefer importing
+  and toggling `enable` until someone validates the verbs on hardware.
+- **`omada_portal`** covers the functional settings; the landing-page design
+  (logo, colours, terms, **background image**) is preserved but not manageable.
+  A background needs a multipart upload to `/setting/portals/media`, captured
+  from the UI.
+- **Writable WAN** stays a deliberate non-goal: `/setting/wan/networks` mixes
+  config with read-only `support*` flags, its write verbs are undocumented, and
+  unlike every other endpoint the write path **cannot be validated with a
+  throwaway** — the only WAN is the live one. If attempted, do it with
+  out-of-band access, in a window, modelling a narrow subset.
+
+### 5.4 Read-only surfaces worth a data source
+
+Straightforward, but each needs one real row before the item shape is known:
+
+- `/setting/ips/grid/blacklist` and `/setting/ips/signature` — both read-only
+  (every write verb `-1600`) and empty on the dev site.
+- `omada_clients` — per-client runtime state.
+- `omada_service_types`, `omada_wan_ports` — listings that would make the opaque
+  ids in §5.1 and §5.8 usable by name.
+
+### 5.5 Per-device configuration
+
+`omada_devices` covers read-only inventory. Per-device *config* — individual
+switch-port overrides, AP radio/power, per-device names — is not started. Each
+capability is small; the umbrella is the second-largest item here after §5.1.
+
+### 5.6 Firewall ACL inline ports — likely unbuildable on this hardware
+
+Port-scoped rules work today through `omada_port_group` (referenced via
+`source_type`/`destination_type = 2`). The ACL's **inline** `customAclPorts` /
+`customAclDevices` are sent empty, and the ER707-M2 reports
+**`customAcl: false`** in `/setting/capacity` — so the populated shape cannot be
+captured on it at all. Needs hardware that reports `customAcl: true`.
+
+### 5.7 Explicitly out of scope
+
+Not gaps, and not planned: statistics and telemetry, log retrieval, one-shot
+actions (reboot, upgrade, RF optimization runs, speed tests), client
+block/unblock, and controller-level (as opposed to site-level) administration
+such as users, roles and cloud access.
+
+### 5.8 The `1_<hex>` WAN interface id
+
+Three features identify a WAN port by the same opaque
 `1_c967cf39292e474291e409b4dfe7f0cd` form: `omada_disable_nat.interface`,
-`omada_qos_bandwidth_control.wan`, and one-to-one NAT's `interfaceIds`
-(§5.9). It is not the `portUuid` from `/setting/wan/networks`, and no endpoint
-found so far lists these ids on their own — `/setting/wan-ports` looks like the
-intended source but rejects every query parameter tried with `-1001`.
+`omada_qos_bandwidth_control.wan`, and one-to-one NAT's `interfaceIds`. It is
+**not** the `portUuid` from `/setting/wan/networks`, and nothing found so far
+lists these ids — see §5.1 item 3. Until then, read the id from an existing
+object that references one, or from a UI capture.
 
-For now the id is obtained by reading an existing object that references one,
-or from a UI capture. Cracking `/setting/wan-ports` would let all three
-resources reference a WAN by name instead, and is the single most useful small
-gap left.
+### 5.9 Already covered — don't re-implement
 
-### 5.9 NAT gaps — disable-NAT shipped, one-to-one NAT blocked by hardware
-
-Both paths came from UI captures; probing could never have found them because
-they are kebab-case and abbreviated (see §4).
-
-**Disable NAT — shipped** as `omada_disable_nat`. The contract is asymmetric
-and worth stating plainly:
-
-| Operation | Call |
-|---|---|
-| list | `GET /setting/wired-networks/disable-**nats**` (plural, paginated) |
-| create | `POST /setting/wired-networks/disable-**nat**` (singular; no object echoed — resolve by name) |
-| update | `PUT /setting/wired-networks/disable-nat/{id}` (`PATCH` → `-1600`) |
-| delete | `DELETE /setting/wired-networks/disable-nat/{id}` — **inferred**, not exercised |
-
-Fields: `name`, `interface` (WAN interface id, `1_<hex>`), `lanList` (network
-ids), `status`. The controller allows **one rule per WAN port** (`-34247`
-otherwise), which is also why delete is unverified: the dev site's single WAN
-already held the one permitted rule, so no throwaway could be created. Create
-and update were confirmed against that existing rule with `status:false`
-preserved throughout — a disabled rule cannot affect traffic.
-
-**One-to-one NAT — field set complete, unusable on this hardware.**
-`POST /setting/transmission/otonats` takes `name`, `status`, `externalIp`,
-`internalIp`, `dmz` and **`interfaceIds`** (a list of `1_<hex>` WAN interface
-ids). That last name was the hold-up; it was confirmed when the error changed
-from `-1001 Wan ports should not be null` to:
-
-```
--34282 Please select a WAN interface that has the Static IP connection type configured.
-```
-
-Which is also the blocker: **one-to-one NAT requires a WAN on a static-IP
-connection**, and the dev site's WAN is not, so create/update/delete cannot be
-exercised there at all (consistent with `supportGeneralDialingTypeWan: false`
-on the list response). Deliberately **not** shipped as a resource on that
-basis — a NAT write path nobody can test is how you take someone's internet
-down. Anyone with a static-IP WAN can finish it from the field set above.
-
-All probing used a TEST-NET-3 external address (`203.0.113.5`) so that no
-functional mapping could ever be created, and the list stayed empty throughout.
-
-### 5.10 Already covered — don't re-implement
-
-Two things commonly asked for are **already modelled** and just aren't obvious
+Two things are commonly asked for and are already modelled, just not obvious
 from the resource names:
 
-- **Isolation.** `omada_network.isolation` (LAN-to-LAN isolation) and
+- **Isolation** — `omada_network.isolation` (LAN-to-LAN) and
   `omada_wireless_network.guest_net` (guest/client isolation on an SSID).
-- **Multicast.** `omada_network` carries `igmp_snoop_enable`, `mld_snoop_enable`
-  and `fast_leave_enable`; `omada_wireless_network` carries the
+- **Multicast** — `omada_network` carries `igmp_snoop_enable`,
+  `mld_snoop_enable`, `fast_leave_enable`; `omada_wireless_network` carries the
   `multicast_*` family.
 
-### 5.11 WLAN optimization — an action, not config
-
-Endpoints exist under `/sites/{id}/rfPlanning` (see the table below), but
-`PUT /rfPlanning/config` validates the document and **persists nothing**, and
-`/rfPlanning/result` returns a job status — so this is a wizard, not durable
-state, and a poor fit for a Terraform resource. Full detail is in the git
-history of this file; the short version is that it needs a UI capture of Save
-to establish whether any of it (probably only the schedule) persists. The
-run-triggering call was never fired: it re-channels live APs.
-
----
+Also done and occasionally re-proposed: list pagination
+(`internal/omada/pagination.go`), and discovery data sources for port forwards,
+firewall ACLs and devices.
 
 ## 6. Release & versioning
 
 - Semver via signed tags. On a `v*` tag, GoReleaser builds multi-platform archives
   and **GPG-signs** the checksums; the workflow then creates a **draft** release,
   uploads all 16 artifacts, and publishes it. The Terraform Registry ingests it on
-  publication. Current line: `v0.5.x`.
+  publication. Current line: `v0.6.x`.
 - **Cut releases by pushing a tag, not from the GitHub UI.** The UI creates the
   tag *and* an empty published release; the tag push then starts the workflow,
   which used to add a second release object (drafts are not tag-bound), leaving
@@ -599,7 +531,13 @@ run-triggering call was never fired: it re-channels live APs.
 |---|---|
 | understand auth / retry / the envelope | `internal/omada/client.go`, `auth.go` |
 | copy a small clean resource | `internal/omada/staticroute.go` + `internal/provider/static_route_resource.go` |
-| see deep-merge + a write-only field | `internal/omada/wireless.go` |
+| add a flat settings singleton (cheapest new resource) | `internal/omada/settings.go` + `internal/provider/alg_resource.go` — a spec is ~40 lines |
+| handle a secret correctly | `internal/provider/radius_profile_resource.go` (`WriteOnly`, read from `req.Config`) and `internal/omada/radiusprofile.go` (carry it across an update) |
+| model a long keyed list sparsely | `internal/provider/notification_settings_resource.go` (§2.7) |
+| deal with a natural key that is not the id | `internal/provider/dhcp_reservation_resource.go` (keyed on MAC, `RequiresReplaceIf`) |
+| see deep-merge + read-only reference data | `internal/omada/wireless.go`, `internal/provider/ips_resource.go` |
 | see import type-discovery | `internal/provider/firewall_acl_resource.go` |
 | add mock endpoints / assertions | `internal/provider/provider_test.go` |
+| prove a secret never reaches state | `internal/provider/secret_leak_test.go` |
 | understand a data source | `internal/provider/networks_data_source.go` |
+| find out what is left to build | §5 — start at the audit table in §5.0 |
