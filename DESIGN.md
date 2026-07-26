@@ -199,6 +199,7 @@ preserved via read-modify-write.
 | `omada_static_route` | CRUD | live | update is `PUT` (`PATCH` → `-1600`) |
 | `omada_portal` | CRUD | live · subset | write-only `password`; bare-array list; PATCH RMW |
 | `omada_vpn` | CRUD | **read live, writes inferred** | see §5.2 |
+| `omada_mac_filter` | R/U (singleton) | live | master toggle only; entries live elsewhere |
 | `omada_attack_defense` | R/U (singleton) | live · subset | flood defense / packet anomaly / IP options; update is `PUT` |
 | `omada_ips_whitelist` | C/R/D | live | read at `/grid/`, write one level up; no update verb |
 | `omada_snmp` | R/U (singleton) | live | update is `PUT`; v3 password returned in plaintext, so write-only |
@@ -335,7 +336,7 @@ Every configuration endpoint found on the controller, and where it stands.
 | `/setting/qos/gateway/bwc` | ✅ `omada_qos_bandwidth_control` |
 | `/setting/firewall/acls` | ✅ `omada_firewall_acl` (inline ports: §5.6) |
 | `/setting/firewall/attackdefense` | ✅ `omada_attack_defense` |
-| `/setting/firewall/macfilter` | ❌ §5.2 |
+| `/setting/firewall/macfilter` | ✅ `omada_mac_filter` (toggle only) |
 | `/setting/firewall/urlfilterings` | ❌ §5.2 — needs its query parameter |
 | `/setting/ips` | ✅ `omada_ips` |
 | `/setting/ips/whitelist` | ✅ `omada_ips_whitelist` |
@@ -398,7 +399,6 @@ controller returned.
 
 | Would become | Endpoint | Shape / notes |
 |---|---|---|
-| `omada_mac_filter` | `/setting/firewall/macfilter` | `{enable, specification}` |
 | `omada_session_limit` | `/setting/transmission/sessionLimits` | `{sessionLimitEnable, sessionLimitMaxSize, ipSessionEnable}` + a nested `table` of per-host rules |
 | `omada_gateway_bandwidth_control` | `/setting/transmission/bandwidthControls` | `{bandwidthControlEnable, thresholdControlEnable, thresholdValue}` + nested `table`. **Distinct from** `/setting/qos/gateway/bwc` |
 | `omada_rate_limit_profile` | `/setting/profiles/rateLimits` | array; `{name, downLimitEnable, upLimitEnable, isDefault}` — `isDefault` is controller-owned |

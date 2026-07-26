@@ -882,6 +882,7 @@ func newMockController(t *testing.T) *httptest.Server {
 	singletonVerb := map[string]string{
 		"transmission/alg":       http.MethodPut,
 		"firewall/attackdefense": http.MethodPut,
+		"firewall/macfilter":     http.MethodPut,
 		"ssh":                    http.MethodPut,
 		"dot1x":                  http.MethodPatch,
 		"macAuth":                http.MethodPatch,
@@ -913,11 +914,12 @@ func newMockController(t *testing.T) *httptest.Server {
 			"securityLevel": float64(1), "authMode": float64(1), "privacyMode": float64(1),
 			"unmodelledKey": "keep-me",
 		},
+		"firewall/macfilter": {"enable": false, "unmodelledKey": "keep-me"},
+		"upnp":               {"enable": false, "unmodelledKey": "keep-me"},
 		"macAuth": {
 			"enable": false, "authType": float64(0), "ssids": []any{},
 			"unmodelledKey": "keep-me",
 		},
-		"upnp": {"enable": false, "unmodelledKey": "keep-me"},
 		// IPS. The *Categories lists are controller-owned reference data: the
 		// provider must report them but never send them, so this handler
 		// rejects a write that includes one.
