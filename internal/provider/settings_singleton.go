@@ -6,6 +6,7 @@ package provider
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/path"
@@ -64,11 +65,41 @@ func (k settingKind) readOnly() bool { return k == kindIntListRO }
 func (k settingKind) writeOnly() bool { return k == kindStringWO }
 
 // settingField maps one controller JSON key to one Terraform attribute.
+//
+// `key` may be dotted, e.g. "bandwidthControl.thresholdValue". That covers
+// endpoints whose read and write shapes disagree: /setting/transmission/
+// bandwidthControls returns its settings nested under a `bandwidthControl`
+// object but accepts them **flat** on write, rejecting the nested form with
+// -1001. A dotted key is therefore read from the nested path and written under
+// its last segment.
 type settingField struct {
 	attr string
 	key  string
 	kind settingKind
 	desc string
+}
+
+// readKey resolves a possibly-dotted key against a document.
+func (f settingField) readKey(doc map[string]any) (any, bool) {
+	parts := strings.Split(f.key, ".")
+	var cur any = doc
+	for _, p := range parts {
+		m, ok := cur.(map[string]any)
+		if !ok {
+			return nil, false
+		}
+		cur, ok = m[p]
+		if !ok {
+			return nil, false
+		}
+	}
+	return cur, true
+}
+
+// writeKey is the key an update sends: the last segment of a dotted key.
+func (f settingField) writeKey() string {
+	parts := strings.Split(f.key, ".")
+	return parts[len(parts)-1]
 }
 
 // settingsSpec fully describes a singleton settings resource.
@@ -209,7 +240,7 @@ func (r *settingsResource) fieldsFrom(ctx context.Context, src, cfg attrGetter, 
 				return nil
 			}
 			if !v.IsNull() && !v.IsUnknown() && v.ValueString() != "" {
-				out[f.key] = v.ValueString()
+				out[f.writeKey()] = v.ValueString()
 			}
 			continue
 		}
@@ -221,7 +252,7 @@ func (r *settingsResource) fieldsFrom(ctx context.Context, src, cfg attrGetter, 
 				return nil
 			}
 			if !v.IsNull() && !v.IsUnknown() {
-				out[f.key] = v.ValueString()
+				out[f.writeKey()] = v.ValueString()
 			}
 		case kindBool:
 			var v types.Bool
@@ -230,7 +261,7 @@ func (r *settingsResource) fieldsFrom(ctx context.Context, src, cfg attrGetter, 
 				return nil
 			}
 			if !v.IsNull() && !v.IsUnknown() {
-				out[f.key] = v.ValueBool()
+				out[f.writeKey()] = v.ValueBool()
 			}
 		case kindInt:
 			var v types.Int64
@@ -239,7 +270,7 @@ func (r *settingsResource) fieldsFrom(ctx context.Context, src, cfg attrGetter, 
 				return nil
 			}
 			if !v.IsNull() && !v.IsUnknown() {
-				out[f.key] = v.ValueInt64()
+				out[f.writeKey()] = v.ValueInt64()
 			}
 		case kindStringList:
 			var v types.List
@@ -253,7 +284,7 @@ func (r *settingsResource) fieldsFrom(ctx context.Context, src, cfg attrGetter, 
 				if diags.HasError() {
 					return nil
 				}
-				out[f.key] = nilToEmpty(vals)
+				out[f.writeKey()] = nilToEmpty(vals)
 			}
 		case kindIntList:
 			var v types.List
@@ -267,7 +298,7 @@ func (r *settingsResource) fieldsFrom(ctx context.Context, src, cfg attrGetter, 
 				if diags.HasError() {
 					return nil
 				}
-				out[f.key] = vals
+				out[f.writeKey()] = vals
 			}
 		}
 	}
@@ -282,7 +313,7 @@ func (r *settingsResource) refresh(ctx context.Context, doc map[string]any, dst 
 		if f.kind.writeOnly() {
 			continue // secret: must stay null in state
 		}
-		raw, present := doc[f.key]
+		raw, present := f.readKey(doc)
 		switch f.kind {
 		case kindString:
 			v := types.StringNull()

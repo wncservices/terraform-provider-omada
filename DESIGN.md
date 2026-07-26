@@ -205,6 +205,8 @@ preserved via read-modify-write.
 | `omada_snmp` | R/U (singleton) | live | update is `PUT`; v3 password returned in plaintext, so write-only |
 | `omada_ips` | R/U (singleton) | live | update is `PATCH`; `*Categories` are controller-owned reference data |
 | `omada_upnp` | R/U (singleton) | live | update is `PUT` |
+| `omada_gateway_bandwidth_control` | R/U (singleton) | live | reads nested, writes flat — dotted keys (§2.5) |
+| `omada_portal_access_control` | R/U (singleton) | live | switches only; policy lists preserved |
 | `omada_session_limit` | R/U (singleton) | live | `PUT`; the per-host `table` is dropped before write |
 | `omada_alg` | R/U (singleton) | live | FTP/H.323/PPTP/IPsec/SIP ALGs; update is `PUT` |
 | `omada_ssh_settings` | R/U (singleton) | live | device SSH; update is `PUT` |
@@ -334,7 +336,7 @@ Every configuration endpoint found on the controller, and where it stands.
 | `/setting/transmission/otonats` | 🚫 **blocked** — needs a static-IP WAN (§5.1) |
 | `/setting/transmission/policyRoutings` | ❌ §5.2 |
 | `/setting/transmission/sessionLimits` | ✅ `omada_session_limit` (per-host table not modelled) |
-| `/setting/transmission/bandwidthControls` | ❌ §5.2 |
+| `/setting/transmission/bandwidthControls` | ✅ `omada_gateway_bandwidth_control` |
 | `/setting/qos/gateway/bwc` | ✅ `omada_qos_bandwidth_control` |
 | `/setting/firewall/acls` | ✅ `omada_firewall_acl` (inline ports: §5.6) |
 | `/setting/firewall/attackdefense` | ✅ `omada_attack_defense` |
@@ -344,7 +346,7 @@ Every configuration endpoint found on the controller, and where it stands.
 | `/setting/ips/whitelist` | ✅ `omada_ips_whitelist` |
 | `/setting/ips/grid/blacklist`, `/setting/ips/signature` | ⚠️ read-only and empty (§5.4) |
 | `/setting/portals` | ✅ `omada_portal` (landing page: §5.3) |
-| `/setting/accessControl` | ❌ §5.2 — portal pre-auth / free-auth policies |
+| `/setting/accessControl` | ✅ `omada_portal_access_control` (switches; policy lists not modelled) |
 | `/setting/dot1x` | ✅ `omada_dot1x` |
 | `/setting/radiusProfiles` | ✅ `omada_radius_profile` |
 | `/setting/macAuth` | ✅ `omada_mac_auth` |
@@ -375,7 +377,9 @@ IP-MAC binding, switch-side QoS, standalone WLAN schedules and MAC filters.
 
 These cannot be finished by writing code alone.
 
-1. **Network create** — the UI creates networks through the official Omada
+1. **Network create** — *and, it turns out, per-device configuration too
+   (§5.5): both go through the OpenAPI, so one auth implementation unlocks
+   both.* The UI creates networks through the official Omada
    **OpenAPI** (`/openapi/v1/.../networks/confirm`), which needs
    client-credentials auth, a different token flow from the web-API session.
    `/api/v2` rejects the create outright. Import/read/update/delete all work.
@@ -401,11 +405,9 @@ controller returned.
 
 | Would become | Endpoint | Shape / notes |
 |---|---|---|
-| `omada_gateway_bandwidth_control` | `/setting/transmission/bandwidthControls` `PUT` | **Read/write asymmetry:** the GET nests `{bandwidthControlEnable, thresholdControlEnable, thresholdValue}` under a `bandwidthControl` object, but the PUT wants them **flat** — sending the nested form is rejected `-1001`. Also carries a per-host `table`. **Distinct from** `/setting/qos/gateway/bwc` |
 | `omada_policy_route` | `/setting/transmission/policyRoutings` | paginated, empty on the dev site — needs one entry or a capture for the item shape |
 | `omada_ddns` | `/setting/service/ddns` | paginated, empty; `support*` flags indicate TP-Link DDNS + custom providers |
 | `omada_reboot_schedule`, `omada_poe_schedule` | `/setting/service/rebootSchedules`, `/poeSchedules` | paginated, empty; pair naturally with `omada_time_range` |
-| `omada_portal_access_control` | `/setting/accessControl` `PATCH` | `{preAuthAccessEnable, preAuthAccessPolicies[], freeAuthClientEnable, freeAuthClientPolicies[]}` — nested policy lists, so not a plain `settingsSpec` |
 | `omada_url_filter` | `/setting/firewall/urlfilterings` | **needs its query parameter** — answers `-1001` to every one tried |
 | `omada_apn_profile` | `/setting/profiles/apns` | cellular APNs; only relevant with an LTE/5G WAN |
 
@@ -445,11 +447,46 @@ Straightforward, but each needs one real row before the item shape is known:
 - `omada_service_types`, `omada_wan_ports` — listings that would make the opaque
   ids in §5.1 and §5.8 usable by name.
 
-### 5.5 Per-device configuration
+### 5.5 Per-device configuration — blocked on the OpenAPI, same as §5.1
 
-`omada_devices` covers read-only inventory. Per-device *config* — individual
-switch-port overrides, AP radio/power, per-device names — is not started. Each
-capability is small; the umbrella is the second-largest item here after §5.1.
+`omada_devices` covers read-only inventory. Per-device *config* is not started,
+and the reason is now known rather than assumed.
+
+Reads are on the familiar surface:
+
+| Call | Returns |
+|---|---|
+| `GET /api/v2/sites/{site}/switches/{mac}` | switch detail |
+| `GET /api/v2/sites/{site}/eaps/{mac}` | AP detail |
+| `GET /api/v2/sites/{site}/gateways/{mac}` | gateway detail |
+| `GET /api/v2/sites/{site}/switches/{mac}/ports` | full per-port config |
+| `GET /api/v2/sites/{site}/setting/lan/profileSummary` | port profiles as `{id, name, type}` |
+| `GET /api/v2/sites/{site}/setting/lan/networks-split` | networks with their `interfaceIds` |
+
+**Writes are not.** A UI capture of saving a switch port shows it goes to the
+**OpenAPI**:
+
+```
+PATCH /openapi/v1/{omadacId}/sites/{site}/switches/{mac}/ports/4
+{duplex, linkSpeed, name, nativeNetworkId, networkTagsSetting,
+ profileId, profileOverrideEnable, profileVlanOverrideEnable, tagIds}
+```
+
+and the OpenAPI refuses a web session — both `/openapi/v1/...` and
+`/openapi/v2/...` answer `-44116 Open API Authorized failed` with a valid
+`Csrf-Token` and cookie. The UI only gets away with it because its requests go
+through TP-Link's cloud connector, which authenticates to the OpenAPI on the
+user's behalf.
+
+The `/api/v2` route at `.../switches/{mac}/ports/{port}` does exist — it answers
+`-1001` rather than `-1600`, and the id form answers `-39701 This port does not
+exist`, so the port *number* is its key — but it rejects the whole document,
+every small subset tried, **and the UI's exact field set above**. No `/api/v2`
+write path has been found.
+
+**So per-device config and network create share one blocker.** Implementing the
+OpenAPI client-credentials flow (§5.1) unlocks both, which makes it clearly the
+highest-leverage remaining work rather than merely the largest.
 
 ### 5.6 Firewall ACL inline ports — likely unbuildable on this hardware
 

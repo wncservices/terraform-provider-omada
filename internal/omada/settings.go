@@ -64,6 +64,19 @@ var (
 		Path: "/setting/transmission/sessionLimits", Verb: http.MethodPut,
 		ReadOnlyKeys: []string{"table"},
 	}
+	// Gateway bandwidth control. PUT, and the write shape differs from the
+	// read shape: the GET nests the settings under `bandwidthControl` while
+	// the PUT wants them flat (the nested form is rejected -1001). The
+	// per-host `table` is a separate collection and is dropped before writing.
+	GatewayBandwidthControlSetting = SettingDoc{
+		Path: "/setting/transmission/bandwidthControls", Verb: http.MethodPut,
+		ReadOnlyKeys: []string{"table", "bandwidthControl"},
+	}
+	// Captive-portal pre-authentication access. PATCH.
+	PortalAccessControlSetting = SettingDoc{
+		Path: "/setting/accessControl", Verb: http.MethodPatch,
+		ReadOnlyKeys: []string{"preAuthAccessPolicies", "freeAuthClientPolicies"},
+	}
 	// IPS/IDS. PATCH, like dot1x. The *Categories lists describe which
 	// signature categories each protection level covers — reference data the
 	// controller maintains, not configuration.
