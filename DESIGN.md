@@ -214,7 +214,7 @@ preserved via read-modify-write.
 
 | Resource / data source | CRUD | Verified | Notes |
 |---|---|---|---|
-| `omada_network` | I/R/U/D | live | **create unsupported** — see §5.1 |
+| `omada_network` | C/I/R/U/D | live | create goes through the Open API — see §5.1 |
 | `omada_lan_dns` | CRUD | live | |
 | `omada_port_forward` | CRUD | live | |
 | `omada_ip_group` | CRUD | live | delete path is `/groups/{type}/{id}` |
@@ -405,14 +405,24 @@ IP-MAC binding, switch-side QoS, standalone WLAN schedules and MAC filters.
 
 These cannot be finished by writing code alone.
 
-1. **Network create** — *and, it turns out, per-device configuration too
-   (§5.5): both go through the OpenAPI, so one auth implementation unlocks
-   both.* The UI creates networks through the official Omada
-   **OpenAPI** (`/openapi/v1/.../networks/confirm`), which needs
-   client-credentials auth, a different token flow from the web-API session.
-   `/api/v2` rejects the create outright. Import/read/update/delete all work.
-   Needs the OpenAPI auth path added, and an Open API app registered under
-   *Settings → Platform Integration*. **Largest single item on this list.**
+1. **Network create** — **done.** It lives on the Open API at
+   `POST /openapi/v2/{omadacId}/sites/{site}/lan-networks`; the web API rejects
+   the POST outright, and there is no `/networks/confirm` two-step (that path
+   answers `-1600`). The required field set is small — `name`, `purpose`,
+   `vlan`, `igmpSnoopEnable` — and was derived from the endpoint's own
+   validation errors without creating anything, by seeding a body with
+   `vlan: 99999`: out of the 1–4094 range, so the request could never succeed
+   no matter which other fields were filled in. Worth copying whenever a create
+   contract has to be mapped on live hardware.
+
+   `CreateNetwork` sends only those four and then applies the rest of the
+   configuration through the ordinary web-API update. Translating every field
+   into Open API shape would mean maintaining a second mapping (the surfaces
+   disagree — `dhcpSettingsVO` vs `dhcpSettings`) that only create would
+   exercise, and a mistake in it lands on a live VLAN. The cost of the split is
+   that create is two calls, so an interruption between them leaves a network
+   that exists but is not fully configured; the next apply reconciles it.
+
 2. **One-to-one NAT** — the field set is complete
    (`name`, `status`, `externalIp`, `internalIp`, `dmz`, `interfaceIds`), but
    `-34282` says it requires a **WAN on a static-IP connection**, which the

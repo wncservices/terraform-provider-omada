@@ -80,16 +80,83 @@ func networksPath(siteID string) string {
 //
 // NOTE: creating a brand-new "interface" network is not supported by this
 // endpoint on v6.2 controllers (the UI uses the Omada OpenAPI). See the README.
+// CreateNetwork creates a LAN network through the Open API.
+//
+// Create is the one network operation the web API will not do — POSTing to
+// /setting/lan/networks is rejected outright. It lives on the Open API instead:
+//
+//	POST /openapi/v2/{omadacId}/sites/{site}/lan-networks
+//
+// (v1 exists too but demands a longer required-field list for no benefit.)
+//
+// **Only the four fields the endpoint requires are sent here**, and everything
+// else the practitioner configured is applied straight afterwards by the
+// ordinary web-API update. That split is deliberate. The two surfaces describe
+// a network differently — the Open API nests DHCP under `dhcpSettingsVO`, the
+// web API uses `dhcpSettings` — so translating the full configuration into Open
+// API shape would mean maintaining a second, largely untested mapping of every
+// field, and a mistake in it would land on a live VLAN. Creating a minimal
+// network and then updating it through the code path that is already exercised
+// on every apply is both less code and better tested.
+//
+// The consequence worth knowing: creating a network is two calls, so an
+// interruption between them can leave a network that exists but is not yet
+// fully configured. It will be reconciled on the next apply.
 func (c *Client) CreateNetwork(ctx context.Context, siteID string, fields map[string]any) (*Network, error) {
+	if !c.openAPIConfigured() {
+		return nil, fmt.Errorf("creating a network needs Open API credentials: %w", ErrOpenAPINotConfigured)
+	}
+
 	name, _ := fields["name"].(string)
-	var created Network
-	if err := c.Do(ctx, "POST", networksPath(siteID), fields, &created); err != nil {
-		return nil, fmt.Errorf("creating network: %w", err)
+	if name == "" {
+		return nil, fmt.Errorf("creating network: name is required")
 	}
-	if created.ID != "" {
-		return &created, nil
+
+	seed := map[string]any{
+		"name":            name,
+		"purpose":         valueOr(fields, "purpose", 1),
+		"vlan":            fields["vlan"],
+		"igmpSnoopEnable": valueOr(fields, "igmpSnoopEnable", false),
 	}
-	return c.getNetworkByName(ctx, siteID, name)
+	if seed["vlan"] == nil {
+		return nil, fmt.Errorf("creating network %q: vlan is required", name)
+	}
+
+	path := c.OpenAPIPathVersion(2, siteID, "/lan-networks")
+	if err := c.DoOpenAPI(ctx, "POST", path, seed, nil); err != nil {
+		return nil, fmt.Errorf("creating network %q: %w", name, err)
+	}
+
+	// The create response carries no id, so the new network is located by name.
+	created, err := c.getNetworkByName(ctx, siteID, name)
+	if err != nil {
+		return nil, fmt.Errorf("network %q was created but could not be read back: %w", name, err)
+	}
+
+	// Apply the rest of the configuration on the surface that supports it.
+	rest := map[string]any{}
+	for k, v := range fields {
+		if _, seeded := seed[k]; !seeded {
+			rest[k] = v
+		}
+	}
+	if len(rest) == 0 {
+		return created, nil
+	}
+	updated, err := c.UpdateNetwork(ctx, siteID, created.ID, rest)
+	if err != nil {
+		return nil, fmt.Errorf("network %q was created but its configuration could not be applied "+
+			"(it exists on the controller and will be reconciled on the next apply): %w", name, err)
+	}
+	return updated, nil
+}
+
+// valueOr returns fields[key], or def when it is absent or nil.
+func valueOr(fields map[string]any, key string, def any) any {
+	if v, ok := fields[key]; ok && v != nil {
+		return v
+	}
+	return def
 }
 
 // GetNetwork returns a single network by id. The controller has no single-object

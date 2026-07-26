@@ -156,9 +156,18 @@ func isOpenAPIAuthError(code int) bool {
 	}
 }
 
-// OpenAPIPath builds a site-scoped Open API path.
+// OpenAPIPath builds a site-scoped Open API path on v1.
 func (c *Client) OpenAPIPath(siteID, suffix string) string {
-	return fmt.Sprintf("/openapi/v1/%s/sites/%s%s", c.omadacID, siteID, suffix)
+	return c.OpenAPIPathVersion(1, siteID, suffix)
+}
+
+// OpenAPIPathVersion builds a site-scoped Open API path on a given version.
+//
+// The version is per-endpoint, not global: `devices` and `switches/{mac}/ports`
+// are v1 while `lan-networks` and `lan-profiles` are v2. There is no prefix that
+// works for everything, so each caller states the one its endpoint uses.
+func (c *Client) OpenAPIPathVersion(version int, siteID, suffix string) string {
+	return fmt.Sprintf("/openapi/v%d/%s/sites/%s%s", version, c.omadacID, siteID, suffix)
 }
 
 // DoOpenAPI performs an authenticated Open API request, unmarshalling result

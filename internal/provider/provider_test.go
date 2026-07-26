@@ -120,13 +120,11 @@ func newMockController(t *testing.T) *httptest.Server {
 		defer mu.Unlock()
 		switch r.Method {
 		case http.MethodPost:
-			var in map[string]any
-			_ = json.NewDecoder(r.Body).Decode(&in)
-			id := fmt.Sprintf("gen-%d", nextID)
-			nextID++
-			in["id"] = id
-			networks[id] = in
-			writeEnvelope(w, 0, "", in)
+			// The real controller refuses network create on the web API — it
+			// only exists on the Open API. Emulating that is the point: a
+			// provider that regressed to POSTing here would pass a permissive
+			// mock and fail on hardware.
+			writeEnvelope(w, -1005, "operation forbidden", nil)
 		default: // GET
 			data := make([]map[string]any, 0, len(networks))
 			for _, n := range networks {
@@ -136,6 +134,52 @@ func newMockController(t *testing.T) *httptest.Server {
 				"totalRows": len(data), "currentPage": 1, "currentSize": 100, "data": data,
 			})
 		}
+	})
+
+	// Network create lives only on the Open API, and only on v2.
+	mux.HandleFunc("/openapi/v2/abc123/sites/site-1/lan-networks", func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "AccessToken=oa-token" {
+			writeEnvelope(w, -44116, "Open API Authorized failed", nil)
+			return
+		}
+		if r.Method != http.MethodPost {
+			writeEnvelope(w, -1600, "Unsupported request path.", nil)
+			return
+		}
+		var in map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&in)
+		// The endpoint requires exactly these four and the provider seeds only
+		// them; anything else means it started sending web-API shape here.
+		for _, k := range []string{"name", "purpose", "vlan", "igmpSnoopEnable"} {
+			if _, ok := in[k]; !ok {
+				writeEnvelope(w, -1001, "Parameter ["+k+"] should not be empty", nil)
+				return
+			}
+		}
+		if len(in) != 4 {
+			writeEnvelope(w, -1001, "unexpected fields in create body", nil)
+			return
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		id := fmt.Sprintf("gen-%d", nextID)
+		nextID++
+		in["id"] = id
+		networks[id] = in
+		// Create answers without an id, so the provider must find it by name.
+		writeEnvelope(w, 0, "Success.", nil)
+	})
+
+	mux.HandleFunc("/openapi/authorize/token", func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]string
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if body["client_id"] != "oa-client" || body["client_secret"] != "oa-secret" {
+			writeEnvelope(w, -44106, "invalid client", nil)
+			return
+		}
+		writeEnvelope(w, 0, "", map[string]any{
+			"accessToken": "oa-token", "tokenType": "bearer", "expiresIn": 7200,
+		})
 	})
 
 	// Item: PATCH (update) + DELETE.
@@ -1660,6 +1704,21 @@ func writeEnvelope(w http.ResponseWriter, code int, msg string, result any) {
 }
 
 // testProviderConfig renders a provider block pointed at the mock controller.
+// testProviderConfigOpenAPI adds Open API credentials, which operations that go
+// through that surface (network create) need.
+func testProviderConfigOpenAPI(url string) string {
+	return fmt.Sprintf(`
+provider "omada" {
+  url                   = %q
+  username              = "admin"
+  password              = "secret"
+  openapi_client_id     = "oa-client"
+  openapi_client_secret = "oa-secret"
+  skip_tls_verify       = true
+}
+`, url)
+}
+
 func testProviderConfig(url string) string {
 	return fmt.Sprintf(`
 provider "omada" {
