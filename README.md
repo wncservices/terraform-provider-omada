@@ -38,6 +38,7 @@ without reading the whole repo first.
 | `omada_ips_whitelist` | IPS exemption entry; create/list/delete verified live ✅; **no update verb — every field replaces** |
 | `omada_snmp` | singleton, read/update verified live ✅; v1/v2c + v3; community string and v3 password are **write-only** |
 | `omada_ips` | singleton, read/update verified live ✅; IPS/IDS mode, protection level, geo-blocking; category lists exposed read-only |
+| `omada_upnp` | singleton, read/update verified live ✅; single `enable` |
 | `omada_alg` | singleton, read/update verified live ✅; FTP/H.323/PPTP/IPsec/SIP application-layer gateways |
 | `omada_ssh_settings` | singleton, read/update verified live ✅; SSH to managed devices |
 | `omada_mac_auth` | singleton, read/update verified live ✅; MAC-based auth against RADIUS |

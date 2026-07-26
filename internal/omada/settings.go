@@ -53,6 +53,8 @@ var (
 	Dot1XSetting = SettingDoc{Path: "/setting/dot1x", Verb: http.MethodPatch}
 	// MAC-based authentication. PATCH, like dot1x.
 	MACAuthSetting = SettingDoc{Path: "/setting/macAuth", Verb: http.MethodPatch}
+	// UPnP. PUT, and a single field.
+	UPnPSetting = SettingDoc{Path: "/setting/upnp", Verb: http.MethodPut}
 	// IPS/IDS. PATCH, like dot1x. The *Categories lists describe which
 	// signature categories each protection level covers — reference data the
 	// controller maintains, not configuration.
