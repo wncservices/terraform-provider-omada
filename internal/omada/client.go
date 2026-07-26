@@ -36,6 +36,11 @@ type Client struct {
 
 	omadacID string // controller id, prefixes every /api/v2 path
 	token    string // CSRF token, sent as the Csrf-Token header
+
+	// openAPI holds the separate client-credentials used by the controller's
+	// Open API (see openapi.go). Nil when none were configured, in which case
+	// the handful of operations that need it fail with a message saying so.
+	openAPI *openAPIAuth
 }
 
 // APIResponse is the standard envelope returned by every controller endpoint.
@@ -76,6 +81,12 @@ func isSessionExpired(code int) bool {
 
 // NewClient builds a client and performs the initial info + login handshake.
 func NewClient(ctx context.Context, rawURL, username, password string, skipTLSVerify bool) (*Client, error) {
+	return NewClientWithOpenAPI(ctx, rawURL, username, password, "", "", skipTLSVerify)
+}
+
+// NewClientWithOpenAPI is NewClient plus the Open API client-credentials. Pass
+// empty strings for those to leave the Open API unconfigured.
+func NewClientWithOpenAPI(ctx context.Context, rawURL, username, password, openAPIClientID, openAPIClientSecret string, skipTLSVerify bool) (*Client, error) {
 	base := strings.TrimRight(rawURL, "/")
 	if _, err := url.Parse(base); err != nil {
 		return nil, fmt.Errorf("invalid controller url %q: %w", rawURL, err)
@@ -99,6 +110,10 @@ func NewClient(ctx context.Context, rawURL, username, password string, skipTLSVe
 			Transport: transport,
 			Timeout:   30 * time.Second,
 		},
+	}
+
+	if openAPIClientID != "" || openAPIClientSecret != "" {
+		c.openAPI = &openAPIAuth{clientID: openAPIClientID, clientSecret: openAPIClientSecret}
 	}
 
 	if err := c.login(ctx); err != nil {
