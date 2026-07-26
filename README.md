@@ -62,6 +62,25 @@ Every resource has mock-backed acceptance tests (create → import → update) t
 in CI. Resources marked "verified live" had their exact endpoint + verbs confirmed
 against a real v6.2 controller with throwaway objects (created and deleted).
 
+## The Open API (optional)
+
+A couple of capabilities — creating a network, and per-device configuration —
+live only on TP-Link's **Open API**, which the controller authenticates
+separately from the admin login. Register an application under *Settings →
+Platform Integration → Open API* and set:
+
+```hcl
+provider "omada" {
+  openapi_client_id     = var.omada_openapi_client_id
+  openapi_client_secret = var.omada_openapi_client_secret
+}
+```
+
+or `OMADA_OPENAPI_CLIENT_ID` / `OMADA_OPENAPI_CLIENT_SECRET`. Everything else in
+this provider works without them. The admin username and password do **not**
+grant Open API access — the controller refuses a web session there with
+`-44116`.
+
 ## Secrets
 
 Every secret this provider accepts — the WiFi `psk`, the captive-portal
