@@ -51,6 +51,8 @@ var (
 	// Note the verb: unlike the three above, dot1x takes PATCH and answers
 	// -1600 to PUT.
 	Dot1XSetting = SettingDoc{Path: "/setting/dot1x", Verb: http.MethodPatch}
+	// Wireless MAC filtering. PUT.
+	MACFilterSetting = SettingDoc{Path: "/setting/firewall/macfilter", Verb: http.MethodPut}
 	// IPS/IDS. PATCH, like dot1x. The *Categories lists describe which
 	// signature categories each protection level covers — reference data the
 	// controller maintains, not configuration.

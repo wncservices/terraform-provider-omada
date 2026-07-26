@@ -9,7 +9,7 @@ shapes are derived from the UI. This is deliberate: it's the only surface with f
 config coverage, including gateway/router settings that other providers omit.
 
 > **Status: released.** `v0.6.1` is the current release on the Terraform Registry —
-> **29 resources** (table below) + 6 data sources, each with acceptance tests in
+> **30 resources** (table below) + 6 data sources, each with acceptance tests in
 > CI. Verified against a live Omada v6.2 controller.
 
 **Contributing?** See [`DESIGN.md`](DESIGN.md) for the architecture, the coverage
@@ -34,6 +34,7 @@ without reading the whole repo first.
 | `omada_vpn` | manages `name`/`enable` only; **write verbs inferred, not live-validated** |
 | `omada_static_route` | full CRUD verified live ✅ (update is `PUT` — `PATCH` is rejected) |
 | `omada_portal` | captive portal; full CRUD verified live ✅; `password` is write-only; landing-page design preserved |
+| `omada_mac_filter` | singleton, read/update verified live ✅; master toggle only |
 | `omada_attack_defense` | singleton, read/update verified live ✅; flood defense, packet anomaly, IPv4 options |
 | `omada_ips_whitelist` | IPS exemption entry; create/list/delete verified live ✅; **no update verb — every field replaces** |
 | `omada_snmp` | singleton, read/update verified live ✅; v1/v2c + v3; community string and v3 password are **write-only** |
