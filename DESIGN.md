@@ -203,6 +203,7 @@ preserved via read-modify-write.
 | `omada_ips_whitelist` | C/R/D | live | read at `/grid/`, write one level up; no update verb |
 | `omada_snmp` | R/U (singleton) | live | update is `PUT`; v3 password returned in plaintext, so write-only |
 | `omada_ips` | R/U (singleton) | live | update is `PATCH`; `*Categories` are controller-owned reference data |
+| `omada_upnp` | R/U (singleton) | live | update is `PUT` |
 | `omada_alg` | R/U (singleton) | live | FTP/H.323/PPTP/IPsec/SIP ALGs; update is `PUT` |
 | `omada_ssh_settings` | R/U (singleton) | live | device SSH; update is `PUT` |
 | `omada_dot1x` | R/U (singleton) | live | site-wide 802.1X; update is `PATCH` |
@@ -355,7 +356,7 @@ Every configuration endpoint found on the controller, and where it stands.
 | `/setting/service/rebootSchedules`, `/poeSchedules` | ❌ §5.2 |
 | `/setting/snmp` | ✅ `omada_snmp` |
 | `/setting/ssh` | ✅ `omada_ssh_settings` |
-| `/setting/upnp` | ❌ §5.2 |
+| `/setting/upnp` | ✅ `omada_upnp` |
 | `/setting/vpns` | ✅ `omada_vpn` (**writes inferred**, §5.3) |
 | `/setting` (site settings) | ✅ `omada_site_settings` (~45 of many fields, §5.3) |
 | `/logs/notification` | ✅ `omada_notification_settings` |
@@ -397,7 +398,6 @@ controller returned.
 
 | Would become | Endpoint | Shape / notes |
 |---|---|---|
-| `omada_upnp` | `/setting/upnp` `PUT` | `{enable}` — trivial |
 | `omada_mac_auth` | `/setting/macAuth` `PATCH` | `{enable, authType, ssids[]}` |
 | `omada_mac_filter` | `/setting/firewall/macfilter` | `{enable, specification}` |
 | `omada_session_limit` | `/setting/transmission/sessionLimits` | `{sessionLimitEnable, sessionLimitMaxSize, ipSessionEnable}` + a nested `table` of per-host rules |
