@@ -178,6 +178,23 @@ Credentials are provider-level and **optional** (`openapi_client_id` /
 message naming the setting and the UI page — not a bare "unauthorized", which
 would send a practitioner to check the wrong credentials entirely.
 
+Verified live against a v6.2 controller. Two path rules cost real time to find
+and are worth stating plainly:
+
+- **Paginated collections require `?page=&pageSize=`.** Without them the
+  controller answers `-1001`, not `-1600`. That distinction is the useful part:
+  `-1600` means the route does not exist, `-1001` means it does and the request
+  was wrong. A probe that only checks "did it work" throws that signal away.
+- **The version prefix is per-endpoint, not global.** `devices` and
+  `switches/{mac}/ports` are `v1`; `lan-profiles` is `v2`. There is no single
+  prefix to assume, so `OpenAPIPath` builds `v1` and anything on `v2` spells its
+  path out.
+
+Confirmed working: `GET /openapi/v1/{cid}/sites?page=1&pageSize=10`,
+`GET /openapi/v1/{cid}/sites/{site}/devices?page=1&pageSize=20`,
+`GET /openapi/v2/{cid}/sites/{site}/lan-profiles?page=1&pageSize=10`,
+`PATCH /openapi/v1/{cid}/sites/{site}/switches/{mac}/ports/{port}`.
+
 ### 2.8 Sparse keyed collections
 
 Some documents carry a long list of keyed entries where most of each entry is
@@ -395,7 +412,7 @@ Every configuration endpoint found on the controller, and where it stands.
 | `/logs/notification` | ✅ `omada_notification_settings` |
 | `/site/audit-notification` | ✅ `omada_audit_notification` |
 | `/rfPlanning` | ⚠️ an action, not config (§5.4) |
-| per-device configuration | ❌ §5.5 |
+| per-device configuration | ⚠️ `omada_switch_port` — switch ports done (§5.5); AP and gateway config not started |
 
 Not found despite looking, and so presumably unsupported on this hardware or
 named unlike anything tried: DMZ, port triggering, multi-nets NAT, IPTV,
@@ -405,14 +422,17 @@ IP-MAC binding, switch-side QoS, standalone WLAN schedules and MAC filters.
 
 These cannot be finished by writing code alone.
 
-1. **Network create** — *and, it turns out, per-device configuration too
-   (§5.5): both go through the OpenAPI, so one auth implementation unlocks
-   both.* The UI creates networks through the official Omada
-   **OpenAPI** (`/openapi/v1/.../networks/confirm`), which needs
-   client-credentials auth, a different token flow from the web-API session.
-   `/api/v2` rejects the create outright. Import/read/update/delete all work.
-   Needs the OpenAPI auth path added, and an Open API app registered under
-   *Settings → Platform Integration*. **Largest single item on this list.**
+1. **Network create** — the UI creates networks through the official Omada
+   **OpenAPI** (`/openapi/v1/.../networks/confirm`). `/api/v2` rejects the
+   create outright. Import/read/update/delete all work.
+
+   The auth half of this is **no longer a blocker**: §2.7's client-credentials
+   flow is implemented and verified live, and §5.5 shipped on top of it. What
+   remains is the create call itself — the `/networks/confirm` two-step has not
+   been exercised, and getting it wrong on a live site means a network that
+   half-exists. It still needs an Open API application registered under
+   *Settings → Platform Integration*, which is per-controller setup a
+   practitioner does once.
 2. **One-to-one NAT** — the field set is complete
    (`name`, `status`, `externalIp`, `internalIp`, `dmz`, `interfaceIds`), but
    `-34282` says it requires a **WAN on a static-IP connection**, which the
@@ -475,46 +495,58 @@ Straightforward, but each needs one real row before the item shape is known:
 - `omada_service_types`, `omada_wan_ports` — listings that would make the opaque
   ids in §5.1 and §5.8 usable by name.
 
-### 5.5 Per-device configuration — blocked on the OpenAPI, same as §5.1
+### 5.5 Per-device configuration — switch ports shipped, APs and gateway not
 
-`omada_devices` covers read-only inventory. Per-device *config* is not started,
-and the reason is now known rather than assumed.
+`omada_devices` covers read-only inventory. Per-device *config* now has its
+first resource, `omada_switch_port`, and it is the provider's only
+**cross-surface** object: the read comes from the web API and the write from
+the Open API.
 
-Reads are on the familiar surface:
-
-| Call | Returns |
-|---|---|
-| `GET /api/v2/sites/{site}/switches/{mac}` | switch detail |
-| `GET /api/v2/sites/{site}/eaps/{mac}` | AP detail |
-| `GET /api/v2/sites/{site}/gateways/{mac}` | gateway detail |
-| `GET /api/v2/sites/{site}/switches/{mac}/ports` | full per-port config |
-| `GET /api/v2/sites/{site}/setting/lan/profileSummary` | port profiles as `{id, name, type}` |
-| `GET /api/v2/sites/{site}/setting/lan/networks-split` | networks with their `interfaceIds` |
-
-**Writes are not.** A UI capture of saving a switch port shows it goes to the
-**OpenAPI**:
+That split is not a preference. The web API serves the full port document at
+`GET /api/v2/sites/{site}/switches/{mac}/ports`, but has no per-port write:
+`.../ports/{port}` answers `-1001` rather than `-1600`, so the route exists and
+the port *number* is its key (the id form answers `-39701 This port does not
+exist`) — yet it rejects the whole document, every small subset tried, **and
+the UI's exact field set**. The Open API has the mirror-image gap: it takes the
+write
 
 ```
-PATCH /openapi/v1/{omadacId}/sites/{site}/switches/{mac}/ports/4
+PATCH /openapi/v1/{omadacId}/sites/{site}/switches/{mac}/ports/{port}
 {duplex, linkSpeed, name, nativeNetworkId, networkTagsSetting,
  profileId, profileOverrideEnable, profileVlanOverrideEnable, tagIds}
 ```
 
-and the OpenAPI refuses a web session — both `/openapi/v1/...` and
-`/openapi/v2/...` answer `-44116 Open API Authorized failed` with a valid
-`Csrf-Token` and cookie. The UI only gets away with it because its requests go
-through TP-Link's cloud connector, which authenticates to the OpenAPI on the
-user's behalf.
+and offers no read — that same path, `/openapi/v1/.../switches`, and the
+paginated `.../ports` all answer `-1600` to a GET. Both halves confirmed live;
+the PATCH was proved by writing a port's own values back to it, which is the
+idempotent-probe technique in §4.
 
-The `/api/v2` route at `.../switches/{mac}/ports/{port}` does exist — it answers
-`-1001` rather than `-1600`, and the id form answers `-39701 This port does not
-exist`, so the port *number* is its key — but it rejects the whole document,
-every small subset tried, **and the UI's exact field set above**. No `/api/v2`
-write path has been found.
+Three decisions in the resource worth keeping if it is extended to APs and the
+gateway:
 
-**So per-device config and network create share one blocker.** Implementing the
-OpenAPI client-credentials flow (§5.1) unlocks both, which makes it clearly the
-highest-leverage remaining work rather than merely the largest.
+- **The PATCH body is an allow-list, not a round-trip of the read document.**
+  The controller returns ~60 keys per port, most of them telemetry. Echoing
+  them back would mean sending undocumented and read-only fields to a device
+  carrying live traffic. Only the nine keys observed in the UI's own request
+  are sent, and the mock rejects anything else so a regression fails in CI.
+- **Every settable attribute is `Optional` + `Computed`, applied by
+  read-modify-write.** Managing only a port's name must not blank its VLAN
+  configuration. The cost is that an omitted attribute never reports drift;
+  that is the right trade for hardware where a wrong write is an outage.
+- **There is no delete.** Ports are physical. Resetting one to a notional
+  default on destroy would make `terraform destroy` silently reconfigure live
+  switching, using this provider's guess rather than the practitioner's — so
+  Delete drops the resource from state and warns, and nothing is written.
+
+Still to do: AP configuration (`GET /api/v2/sites/{site}/eaps/{mac}`), gateway
+configuration (`.../gateways/{mac}`), and the rest of the port document — PoE,
+per-port QoS, storm control, spanning tree — none of which appear in the UI
+capture, so each needs its own capture before anything is written.
+
+Supporting reads already available:
+`GET /api/v2/sites/{site}/setting/lan/profileSummary` (port profiles as
+`{id, name, type}`) and `.../setting/lan/networks-split` (networks with their
+`interfaceIds`).
 
 ### 5.6 Firewall ACL inline ports — likely unbuildable on this hardware
 
