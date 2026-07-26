@@ -880,16 +880,18 @@ func newMockController(t *testing.T) *httptest.Server {
 	// provider records the confirmed verb per SettingDoc. The mock enforces it:
 	// the wrong verb answers -1600 exactly as the real controller does.
 	singletonVerb := map[string]string{
-		"transmission/alg":           http.MethodPut,
-		"transmission/sessionLimits": http.MethodPut,
-		"firewall/attackdefense":     http.MethodPut,
-		"ssh":                        http.MethodPut,
-		"dot1x":                      http.MethodPatch,
-		"macAuth":                    http.MethodPatch,
-		"ips":                        http.MethodPatch,
-		"snmp":                       http.MethodPut,
-		"upnp":                       http.MethodPut,
-		"firewall/macfilter":         http.MethodPut,
+		"transmission/alg":               http.MethodPut,
+		"transmission/bandwidthControls": http.MethodPut,
+		"accessControl":                  http.MethodPatch,
+		"transmission/sessionLimits":     http.MethodPut,
+		"firewall/attackdefense":         http.MethodPut,
+		"ssh":                            http.MethodPut,
+		"dot1x":                          http.MethodPatch,
+		"macAuth":                        http.MethodPatch,
+		"ips":                            http.MethodPatch,
+		"snmp":                           http.MethodPut,
+		"upnp":                           http.MethodPut,
+		"firewall/macfilter":             http.MethodPut,
 	}
 	singletons := map[string]map[string]any{
 		"ssh": {
@@ -919,6 +921,24 @@ func newMockController(t *testing.T) *httptest.Server {
 		"upnp":               {"enable": false, "unmodelledKey": "keep-me"},
 		"macAuth": {
 			"enable": false, "authType": float64(0), "ssids": []any{},
+			"unmodelledKey": "keep-me",
+		},
+		// Gateway bandwidth control. The read nests settings under
+		// `bandwidthControl` while the write takes them flat, so the handler
+		// rejects a write containing the nested object — that asymmetry is the
+		// whole reason the scaffold grew dotted keys.
+		"transmission/bandwidthControls": {
+			"bandwidthControl": map[string]any{
+				"bandwidthControlEnable": false, "thresholdControlEnable": false,
+				"thresholdValue": float64(80),
+			},
+			"table":         map[string]any{"totalRows": float64(0), "data": []any{}},
+			"unmodelledKey": "keep-me",
+		},
+		// Portal access control. The policy lists must survive an update.
+		"accessControl": {
+			"preAuthAccessEnable": false, "preAuthAccessPolicies": []any{},
+			"freeAuthClientEnable": false, "freeAuthClientPolicies": []any{},
 			"unmodelledKey": "keep-me",
 		},
 		// Session limits. The `table` of per-host rules is controller-owned as
@@ -983,13 +1003,27 @@ func newMockController(t *testing.T) *httptest.Server {
 			case r.Method == wantVerb:
 				var in map[string]any
 				_ = json.NewDecoder(r.Body).Decode(&in)
+				// bandwidthControls is written flat but read back nested, so
+				// fold flat writes into the nested object the way the
+				// controller does — otherwise a read after write would return
+				// the stale nested values and the apply would look
+				// inconsistent.
+				if nested, ok := doc["bandwidthControl"].(map[string]any); ok {
+					for _, k := range []string{"bandwidthControlEnable", "thresholdControlEnable", "thresholdValue"} {
+						if v, present := in[k]; present {
+							nested[k] = v
+							delete(in, k)
+						}
+					}
+				}
 				for k := range in {
 					if _, isMeta := singletonMeta[k]; isMeta {
 						writeEnvelope(w, -1001, "read-only key "+k+" must not be sent", nil)
 						return
 					}
 					switch k {
-					case "table",
+					case "table", "bandwidthControl",
+						"preAuthAccessPolicies", "freeAuthClientPolicies",
 						"lowCategories", "mediumCategories", "highCategories", "allCategories":
 						writeEnvelope(w, -1001, "controller-owned key "+k+" must not be sent", nil)
 						return
