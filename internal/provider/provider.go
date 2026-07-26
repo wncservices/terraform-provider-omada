@@ -31,6 +31,9 @@ type OmadaProviderModel struct {
 	Password      types.String `tfsdk:"password"`
 	SkipTLSVerify types.Bool   `tfsdk:"skip_tls_verify"`
 	Site          types.String `tfsdk:"site"`
+
+	OpenAPIClientID     types.String `tfsdk:"openapi_client_id"`
+	OpenAPIClientSecret types.String `tfsdk:"openapi_client_secret"`
 }
 
 func New(version string) func() provider.Provider {
@@ -60,6 +63,20 @@ func (p *OmadaProvider) Schema(_ context.Context, _ provider.SchemaRequest, resp
 				MarkdownDescription: "Controller admin password. May also be set via `OMADA_PASSWORD`.",
 				Optional:            true,
 				Sensitive:           true,
+			},
+			"openapi_client_id": schema.StringAttribute{
+				Optional: true,
+				MarkdownDescription: "Client ID of an application registered under *Settings → Platform " +
+					"Integration → Open API*. Only needed for the few capabilities the controller exposes " +
+					"solely through its Open API. May also be set via `OMADA_OPENAPI_CLIENT_ID`.",
+			},
+			"openapi_client_secret": schema.StringAttribute{
+				Optional:  true,
+				Sensitive: true,
+				MarkdownDescription: "Client secret paired with `openapi_client_id`. May also be set via " +
+					"`OMADA_OPENAPI_CLIENT_SECRET`.\n\n" +
+					"This is **not** the admin password: the controller refuses a web session on the Open " +
+					"API with error `-44116`, so the two credential sets are genuinely separate.",
 			},
 			"skip_tls_verify": schema.BoolAttribute{
 				MarkdownDescription: "Skip TLS verification of the controller's (typically self-signed) certificate. Defaults to `true`. May also be set via `OMADA_SKIP_TLS_VERIFY`.",
@@ -114,7 +131,26 @@ func (p *OmadaProvider) Configure(ctx context.Context, req provider.ConfigureReq
 	// often named e.g. "Home").
 	site := firstNonEmpty(config.Site, os.Getenv("OMADA_SITE"))
 
-	client, err := omada.NewClient(ctx, url, username, password, skipTLS)
+	// Open API credentials are optional: only a few capabilities need them, and
+	// most configurations never will. Supplying one without the other is a
+	// mistake worth catching here rather than at the first Open API call.
+	openAPIID := firstNonEmpty(config.OpenAPIClientID, os.Getenv("OMADA_OPENAPI_CLIENT_ID"))
+	openAPISecret := firstNonEmpty(config.OpenAPIClientSecret, os.Getenv("OMADA_OPENAPI_CLIENT_SECRET"))
+	switch {
+	case openAPIID != "" && openAPISecret == "":
+		resp.Diagnostics.AddAttributeError(pathRoot("openapi_client_secret"),
+			"Missing Open API client secret",
+			"`openapi_client_id` was set without `openapi_client_secret`; the Open API needs both.")
+	case openAPISecret != "" && openAPIID == "":
+		resp.Diagnostics.AddAttributeError(pathRoot("openapi_client_id"),
+			"Missing Open API client ID",
+			"`openapi_client_secret` was set without `openapi_client_id`; the Open API needs both.")
+	}
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	client, err := omada.NewClientWithOpenAPI(ctx, url, username, password, openAPIID, openAPISecret, skipTLS)
 	if err != nil {
 		resp.Diagnostics.AddError("Unable to connect to the Omada controller", err.Error())
 		return

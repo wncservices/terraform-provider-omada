@@ -150,7 +150,35 @@ relevant resource.
   some delete at `/{id}`, some at `/{type}/{id}`. Static routes reject `PATCH`
   outright (`-1600`). Never assume — confirm against the live controller.
 
-### 2.7 Sparse keyed collections
+### 2.7 The Open API is a second, separately-authenticated surface
+
+Two capabilities live only on TP-Link's documented **Open API** under
+`/openapi/`: creating a network (§5.1) and per-device configuration (§5.5).
+
+It does **not** accept the web session — a request carrying a valid
+`Csrf-Token` and cookie is refused `-44116`. The controller UI only reaches it
+because its requests are proxied through TP-Link's cloud connector, which
+authenticates on the operator's behalf. Locally the only way in is a
+client-credentials grant against an application registered under *Settings →
+Platform Integration → Open API*:
+
+```
+POST /openapi/authorize/token?grant_type=client_credentials
+{"omadacId": …, "client_id": …, "client_secret": …}
+-> {"result": {"accessToken": …, "expiresIn": 7200}}
+```
+
+then `Authorization: AccessToken=<token>` on every call.
+`internal/omada/openapi.go` implements that: the token is cached until shortly
+before expiry, and a call refused with `-44112`/`-44113`/`-44116` refreshes once
+and retries, so a token lapsing mid-apply is not a failed apply.
+
+Credentials are provider-level and **optional** (`openapi_client_id` /
+`openapi_client_secret`). When absent, operations needing them fail with a
+message naming the setting and the UI page — not a bare "unauthorized", which
+would send a practitioner to check the wrong credentials entirely.
+
+### 2.8 Sparse keyed collections
 
 Some documents carry a long list of keyed entries where most of each entry is
 description rather than configuration. `/logs/notification` has 63 alert and 68
