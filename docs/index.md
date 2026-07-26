@@ -39,6 +39,10 @@ provider "omada" {
 
 ### Optional
 
+- `openapi_client_id` (String) Client ID of an application registered under *Settings → Platform Integration → Open API*. Only needed for the few capabilities the controller exposes solely through its Open API. May also be set via `OMADA_OPENAPI_CLIENT_ID`.
+- `openapi_client_secret` (String, Sensitive) Client secret paired with `openapi_client_id`. May also be set via `OMADA_OPENAPI_CLIENT_SECRET`.
+
+This is **not** the admin password: the controller refuses a web session on the Open API with error `-44116`, so the two credential sets are genuinely separate.
 - `password` (String, Sensitive) Controller admin password. May also be set via `OMADA_PASSWORD`.
 - `site` (String) Default site name used by site-scoped resources when they don't set one explicitly. Defaults to the controller's **primary** site (real sites are often named e.g. `Home`, not `Default`). May also be set via `OMADA_SITE`.
 - `skip_tls_verify` (Boolean) Skip TLS verification of the controller's (typically self-signed) certificate. Defaults to `true`. May also be set via `OMADA_SKIP_TLS_VERIFY`.
