@@ -178,6 +178,8 @@ preserved via read-modify-write.
 | `omada_radius_profile` | CRUD | live | bare-array list; `radiusPwd` write-only, carried across updates |
 | `omada_dhcp_reservation` | CRUD | live | item path keyed on **MAC**; unknown key still answers 0 |
 | `omada_disable_nat` | CRUD | live (delete inferred) | plural list / singular item paths; update is `PUT`; one rule per WAN port |
+| `omada_notification_settings` | R/U (singleton) | live | outside `/setting/`; `PATCH` full doc; sparse keyed maps |
+| `omada_audit_notification` | R/U (singleton) | live | as above; entries carry only `webhook` |
 | `omada_site_settings` | R/U (singleton) | live · subset | ~45 fields; large object |
 | `omada_sites` (data) | R | live | |
 | `omada_networks` (data) | R | live | |
@@ -349,6 +351,31 @@ reference it, and `/setting/portals/media` exists (a bare GET returns `-34326`,
 i.e. the path is valid but wants parameters). Needs the multipart upload captured
 from the UI, then a resource (or a `background_image` attribute taking a local file
 path + hash) that uploads and references the picture index.
+
+### 5.5a Sparse keyed collections — the notification pattern
+
+Some documents carry a long list of keyed entries where most of each entry is
+description rather than configuration. `/logs/notification` has 63 alert and 68
+event notifications, each `{key, shortMsg, module, level, deviceTypes, email,
+webhook, enable}` — only the last three are settings.
+
+Modelling that as a list would force a configuration to restate 131 entries and
+would let a stale config silently revert entries it did not mean to touch. The
+pattern used instead, worth copying for anything similar:
+
+- expose a **map keyed by the controller's own key**, marked `Optional`;
+- patch entries **in place by key** during the read-modify-write, leaving every
+  other entry and every unmodelled field untouched;
+- refresh **only the declared keys**, so a sparse config stays sparse;
+- make the per-entry toggles `Optional` and **not** `Computed`, and refresh only
+  the ones actually set. Nested `Computed` attributes inside an `Optional` map
+  are planned as null rather than unknown, so filling them fails as an
+  inconsistent apply.
+
+The cost is that `terraform import` cannot populate the map — which of the 131
+you intend to manage is not discoverable — so an import is followed by a
+one-time diff adding the declared entries. That is inherent, and the acceptance
+tests use `ImportStateVerifyIgnore` for those attributes.
 
 ### 5.6 Smaller gaps 🟢
 
