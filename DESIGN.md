@@ -377,7 +377,9 @@ IP-MAC binding, switch-side QoS, standalone WLAN schedules and MAC filters.
 
 These cannot be finished by writing code alone.
 
-1. **Network create** — the UI creates networks through the official Omada
+1. **Network create** — *and, it turns out, per-device configuration too
+   (§5.5): both go through the OpenAPI, so one auth implementation unlocks
+   both.* The UI creates networks through the official Omada
    **OpenAPI** (`/openapi/v1/.../networks/confirm`), which needs
    client-credentials auth, a different token flow from the web-API session.
    `/api/v2` rejects the create outright. Import/read/update/delete all work.
@@ -445,11 +447,46 @@ Straightforward, but each needs one real row before the item shape is known:
 - `omada_service_types`, `omada_wan_ports` — listings that would make the opaque
   ids in §5.1 and §5.8 usable by name.
 
-### 5.5 Per-device configuration
+### 5.5 Per-device configuration — blocked on the OpenAPI, same as §5.1
 
-`omada_devices` covers read-only inventory. Per-device *config* — individual
-switch-port overrides, AP radio/power, per-device names — is not started. Each
-capability is small; the umbrella is the second-largest item here after §5.1.
+`omada_devices` covers read-only inventory. Per-device *config* is not started,
+and the reason is now known rather than assumed.
+
+Reads are on the familiar surface:
+
+| Call | Returns |
+|---|---|
+| `GET /api/v2/sites/{site}/switches/{mac}` | switch detail |
+| `GET /api/v2/sites/{site}/eaps/{mac}` | AP detail |
+| `GET /api/v2/sites/{site}/gateways/{mac}` | gateway detail |
+| `GET /api/v2/sites/{site}/switches/{mac}/ports` | full per-port config |
+| `GET /api/v2/sites/{site}/setting/lan/profileSummary` | port profiles as `{id, name, type}` |
+| `GET /api/v2/sites/{site}/setting/lan/networks-split` | networks with their `interfaceIds` |
+
+**Writes are not.** A UI capture of saving a switch port shows it goes to the
+**OpenAPI**:
+
+```
+PATCH /openapi/v1/{omadacId}/sites/{site}/switches/{mac}/ports/4
+{duplex, linkSpeed, name, nativeNetworkId, networkTagsSetting,
+ profileId, profileOverrideEnable, profileVlanOverrideEnable, tagIds}
+```
+
+and the OpenAPI refuses a web session — both `/openapi/v1/...` and
+`/openapi/v2/...` answer `-44116 Open API Authorized failed` with a valid
+`Csrf-Token` and cookie. The UI only gets away with it because its requests go
+through TP-Link's cloud connector, which authenticates to the OpenAPI on the
+user's behalf.
+
+The `/api/v2` route at `.../switches/{mac}/ports/{port}` does exist — it answers
+`-1001` rather than `-1600`, and the id form answers `-39701 This port does not
+exist`, so the port *number* is its key — but it rejects the whole document,
+every small subset tried, **and the UI's exact field set above**. No `/api/v2`
+write path has been found.
+
+**So per-device config and network create share one blocker.** Implementing the
+OpenAPI client-credentials flow (§5.1) unlocks both, which makes it clearly the
+highest-leverage remaining work rather than merely the largest.
 
 ### 5.6 Firewall ACL inline ports — likely unbuildable on this hardware
 
