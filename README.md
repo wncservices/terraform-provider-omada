@@ -113,11 +113,11 @@ provider reads back, so only `WriteOnly` actually keeps them out.
   requires a WAN on a **static-IP** connection (`-34282`) and the development site
   has none, so the write path cannot be exercised. An untested NAT write path is
   not something to ship.
-- **A WAN port is referenced by an opaque id.** `omada_disable_nat`,
-  `omada_qos_bandwidth_control` (and one-to-one NAT) take the controller's
-  `1_<hex>` interface id rather than a name, because no endpoint has been found
-  that lists those ids — `/setting/wan-ports` exists but rejects every query
-  parameter tried. Read the id from an existing object or the controller UI.
+- **A WAN port is referenced by its `portUuid`** — an opaque `1_<hex>` string —
+  in `omada_disable_nat` and `omada_qos_bandwidth_control`. It does not have to
+  be hard-coded: the `omada_wan` data source reports `port_uuid` and `port_name`
+  for each WAN, so a configuration can look the id up by name. See
+  [`DESIGN.md` §5.8](DESIGN.md#58-the-1_hex-wan-interface-id--resolved).
 - **WLAN optimization is an action, not configuration.** `/rfPlanning` accepts a
   parameter document and persists nothing, so it is not exposed; a Terraform
   resource that reported success while changing nothing would be worse than none.

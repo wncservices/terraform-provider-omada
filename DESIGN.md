@@ -320,7 +320,7 @@ Every configuration endpoint found on the controller, and where it stands.
 | `/setting/lan/dns` | ✅ `omada_lan_dns` |
 | `/setting/lan/profiles` | ✅ `omada_port_profile` (subset) |
 | `/setting/wan/networks` | ⚠️ read-only data source by design (§5.3) |
-| `/setting/wan-ports` | 🚫 **blocked** — query parameter unknown (§5.1) |
+| `/setting/wan-ports` | ⚠️ query parameter unknown — but **not needed**, see §5.8 |
 | `/setting/wired-networks/disable-nats` | ✅ `omada_disable_nat` |
 | `/setting/wlans` + `/wlans/{id}/ssids` | ✅ `omada_wlan_group`, `omada_wireless_network` (subset) |
 | `/setting/transmission/portForwardings` | ✅ `omada_port_forward` |
@@ -381,13 +381,8 @@ These cannot be finished by writing code alone.
    `-34282` says it requires a **WAN on a static-IP connection**, which the
    development site does not have. No write path can be exercised, and shipping
    an untestable NAT write path is how you take someone's internet down.
-3. **`/setting/wan-ports`** — the presumed source of the `1_<hex>` WAN interface
-   ids (§5.8). Exists, but rejects every query parameter tried
-   (none, `type`, `purpose`, `wanType`, `ipv`, `protocol`, `portType`,
-   `ipVersion`, `stack`, pagination) with `-1001`. Cracking it would let
-   `omada_disable_nat`, `omada_qos_bandwidth_control` and one-to-one NAT
-   reference a WAN **by name** instead of an opaque id — the highest-value small
-   win left.
+3. *(resolved — see §5.8. `/setting/wan-ports` still rejects every query
+   parameter tried, but it turned out not to be needed.)*
 4. **WLAN optimization** (`/rfPlanning`) — an *action*, not configuration:
    `PUT /rfPlanning/config` validates the document and persists nothing, and
    `/rfPlanning/result` reports a job status. Poor fit for Terraform unless the
@@ -471,14 +466,42 @@ actions (reboot, upgrade, RF optimization runs, speed tests), client
 block/unblock, and controller-level (as opposed to site-level) administration
 such as users, roles and cloud access.
 
-### 5.8 The `1_<hex>` WAN interface id
+### 5.8 The `1_<hex>` WAN interface id — resolved
 
-Three features identify a WAN port by the same opaque
-`1_c967cf39292e474291e409b4dfe7f0cd` form: `omada_disable_nat.interface`,
-`omada_qos_bandwidth_control.wan`, and one-to-one NAT's `interfaceIds`. It is
-**not** the `portUuid` from `/setting/wan/networks`, and nothing found so far
-lists these ids — see §5.1 item 3. Until then, read the id from an existing
-object that references one, or from a UI capture.
+Three features identify a WAN port by an opaque
+`1_c967cf39292e474291e409b4dfe7f0cd` string: `omada_disable_nat.interface`,
+`omada_qos_bandwidth_control.wan`, and one-to-one NAT's `interfaceIds`.
+
+**It is the `portUuid`, and the provider already exposes it.** The `omada_wan`
+data source flattens `/setting/wan/networks → wanPortSettings[]` and reports
+`port_uuid` alongside `port_name`, so a configuration can reference a WAN by
+its human name instead of hard-coding the id:
+
+```hcl
+data "omada_wan" "this" {}
+
+locals {
+  wan = { for p in data.omada_wan.this.ports : p.port_name => p.port_uuid }
+}
+
+resource "omada_qos_bandwidth_control" "wan" {
+  wan = local.wan["2.5G WAN1"]
+  # ...
+}
+```
+
+Earlier revisions of this document claimed no endpoint listed these ids and
+that `/setting/wan-ports` had to be cracked first. That was wrong twice over:
+the ids are in a document the provider already reads, and the data source
+already surfaced them. The cause was a probe whose regex was mangled by shell
+quoting; it returned nothing and the empty result was taken as evidence rather
+than checked. Worth keeping as a rule: when a probe reports "not found",
+confirm the probe works before concluding anything about the API.
+
+The full physical port inventory — including LAN-capable ports not currently
+serving as a WAN — is at `osgPortInfo.wanLanPortSettings[]` in the same
+document and is not surfaced. It would only matter for referencing a port that
+is not yet a WAN.
 
 ### 5.9 Already covered — don't re-implement
 
