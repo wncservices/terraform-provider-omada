@@ -160,6 +160,7 @@ func (p *OmadaProvider) Resources(_ context.Context) []func() resource.Resource 
 		NewSSHSettingsResource,
 		NewDot1XResource,
 		NewSNMPResource,
+		NewUPnPResource,
 		NewIPSResource,
 		NewIPSWhitelistResource,
 		NewTimeRangeResource,
