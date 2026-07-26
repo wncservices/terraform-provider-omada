@@ -885,6 +885,7 @@ func newMockController(t *testing.T) *httptest.Server {
 		"ssh":                    http.MethodPut,
 		"dot1x":                  http.MethodPatch,
 		"ips":                    http.MethodPatch,
+		"snmp":                   http.MethodPut,
 	}
 	singletons := map[string]map[string]any{
 		"ssh": {
@@ -894,6 +895,20 @@ func newMockController(t *testing.T) *httptest.Server {
 		"dot1x": {
 			"enable": false, "authMode": float64(1), "authType": float64(1),
 			"macFormat": float64(0), "vlanAssign": false,
+			"unmodelledKey": "keep-me",
+		},
+		// SNMP. Seeded with a v3 password so the test can prove three things:
+		// the secret reaches the controller, it survives an update that does
+		// not re-supply it, and it never reaches Terraform state even though
+		// the controller hands it back in plaintext on every read.
+		// nolint below: gosec's G101 sees a "password" key with a literal value
+		// and flags a hardcoded credential. This is a mock controller's seed
+		// data — the whole point is that a fake secret exists to assert it
+		// never reaches Terraform state.
+		"snmp": { //nolint:gosec // test fixture, not a real credential
+			"snmpV1V2CEnable": false, "snmpV3Enable": true,
+			"username": "test", "password": "seeded-v3-password",
+			"securityLevel": float64(1), "authMode": float64(1), "privacyMode": float64(1),
 			"unmodelledKey": "keep-me",
 		},
 		// IPS. The *Categories lists are controller-owned reference data: the

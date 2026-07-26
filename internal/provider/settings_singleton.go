@@ -46,10 +46,20 @@ const (
 	// category set each protection level covers alongside the real settings,
 	// and those lists are descriptive, not configuration.
 	kindIntListRO
+	// kindString is an ordinary string setting.
+	kindString
+	// kindStringWO is a secret: a Terraform write-only attribute. The value is
+	// supplied on apply and never persisted to state or plan, because the
+	// controller returns secrets like the SNMP v3 password in plaintext on
+	// read (DESIGN.md §2.6). Values come from the configuration, not the plan.
+	kindStringWO
 )
 
 // readOnly reports whether a kind is controller-owned and must not be sent.
 func (k settingKind) readOnly() bool { return k == kindIntListRO }
+
+// writeOnly reports whether a kind is a secret that must never reach state.
+func (k settingKind) writeOnly() bool { return k == kindStringWO }
 
 // settingField maps one controller JSON key to one Terraform attribute.
 type settingField struct {
@@ -141,6 +151,17 @@ func (r *settingsResource) Schema(_ context.Context, _ resource.SchemaRequest, r
 				Optional: true, Computed: true, MarkdownDescription: f.desc,
 				PlanModifiers: []planmodifier.Int64{int64planmodifier.UseStateForUnknown()},
 			}
+		case kindString:
+			attrs[f.attr] = schema.StringAttribute{
+				Optional: true, Computed: true, MarkdownDescription: f.desc,
+				PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
+			}
+		case kindStringWO:
+			// Not Computed: WriteOnly forbids it, and there is nothing to
+			// compute — the value is never stored.
+			attrs[f.attr] = schema.StringAttribute{
+				Optional: true, Sensitive: true, WriteOnly: true, MarkdownDescription: f.desc,
+			}
 		case kindIntList, kindIntListRO:
 			attrs[f.attr] = schema.ListAttribute{
 				ElementType: types.Int64Type,
@@ -166,13 +187,34 @@ func (r *settingsResource) siteName(ctx context.Context, src attrGetter) string 
 
 // fieldsFrom collects the attributes the practitioner actually set. Null and
 // unknown attributes are skipped so unmanaged keys are never written.
-func (r *settingsResource) fieldsFrom(ctx context.Context, src attrGetter, diags *diag.Diagnostics) map[string]any {
+func (r *settingsResource) fieldsFrom(ctx context.Context, src, cfg attrGetter, diags *diag.Diagnostics) map[string]any {
 	out := map[string]any{}
 	for _, f := range r.spec.fields {
 		if f.kind.readOnly() {
 			continue // controller-owned; reported, never written
 		}
+		// Write-only values exist only in the configuration.
+		if f.kind.writeOnly() {
+			var v types.String
+			diags.Append(cfg.GetAttribute(ctx, path.Root(f.attr), &v)...)
+			if diags.HasError() {
+				return nil
+			}
+			if !v.IsNull() && !v.IsUnknown() && v.ValueString() != "" {
+				out[f.key] = v.ValueString()
+			}
+			continue
+		}
 		switch f.kind {
+		case kindString:
+			var v types.String
+			diags.Append(src.GetAttribute(ctx, path.Root(f.attr), &v)...)
+			if diags.HasError() {
+				return nil
+			}
+			if !v.IsNull() && !v.IsUnknown() {
+				out[f.key] = v.ValueString()
+			}
 		case kindBool:
 			var v types.Bool
 			diags.Append(src.GetAttribute(ctx, path.Root(f.attr), &v)...)
@@ -215,8 +257,17 @@ func (r *settingsResource) fieldsFrom(ctx context.Context, src attrGetter, diags
 // practitioner did not set.
 func (r *settingsResource) refresh(ctx context.Context, doc map[string]any, dst attrSetter, diags *diag.Diagnostics) {
 	for _, f := range r.spec.fields {
+		if f.kind.writeOnly() {
+			continue // secret: must stay null in state
+		}
 		raw, present := doc[f.key]
 		switch f.kind {
+		case kindString:
+			v := types.StringNull()
+			if str, ok := raw.(string); ok && present {
+				v = types.StringValue(str)
+			}
+			diags.Append(dst.SetAttribute(ctx, path.Root(f.attr), v)...)
 		case kindBool:
 			v := types.BoolNull()
 			if b, ok := raw.(bool); ok && present {
@@ -253,7 +304,7 @@ func (r *settingsResource) refresh(ctx context.Context, doc map[string]any, dst 
 // write applies the plan and reflects the resulting live document into state.
 // Create and Update are identical for a singleton: there is nothing to create,
 // only fields to set.
-func (r *settingsResource) write(ctx context.Context, plan attrGetter, state attrSetter, diags *diag.Diagnostics) {
+func (r *settingsResource) write(ctx context.Context, plan, cfg attrGetter, state attrSetter, diags *diag.Diagnostics) {
 	site, err := r.data.client.ResolveSite(ctx, r.siteName(ctx, plan))
 	if err != nil {
 		diags.AddError("Unable to resolve site", err.Error())
@@ -268,7 +319,7 @@ func (r *settingsResource) write(ctx context.Context, plan attrGetter, state att
 	if diags.HasError() {
 		return
 	}
-	fields := r.fieldsFrom(ctx, plan, diags)
+	fields := r.fieldsFrom(ctx, plan, cfg, diags)
 	if diags.HasError() {
 		return
 	}
@@ -290,12 +341,12 @@ func (r *settingsResource) write(ctx context.Context, plan attrGetter, state att
 
 func (r *settingsResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
 	resp.State.Raw = req.Plan.Raw
-	r.write(ctx, req.Plan, &resp.State, &resp.Diagnostics)
+	r.write(ctx, req.Plan, req.Config, &resp.State, &resp.Diagnostics)
 }
 
 func (r *settingsResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
 	resp.State.Raw = req.Plan.Raw
-	r.write(ctx, req.Plan, &resp.State, &resp.Diagnostics)
+	r.write(ctx, req.Plan, req.Config, &resp.State, &resp.Diagnostics)
 }
 
 func (r *settingsResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
