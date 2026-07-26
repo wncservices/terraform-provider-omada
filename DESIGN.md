@@ -205,6 +205,7 @@ preserved via read-modify-write.
 | `omada_ips` | R/U (singleton) | live | update is `PATCH`; `*Categories` are controller-owned reference data |
 | `omada_alg` | R/U (singleton) | live | FTP/H.323/PPTP/IPsec/SIP ALGs; update is `PUT` |
 | `omada_ssh_settings` | R/U (singleton) | live | device SSH; update is `PUT` |
+| `omada_mac_auth` | R/U (singleton) | live | update is `PATCH` |
 | `omada_dot1x` | R/U (singleton) | live | site-wide 802.1X; update is `PATCH` |
 | `omada_service_type` | CRUD | live | create returns the id as a **bare string**; update is `PUT` |
 | `omada_qos_bandwidth_control` | CRUD | live | one rule per WAN port (`-43310`); create returns null, resolved by WAN |
@@ -342,7 +343,7 @@ Every configuration endpoint found on the controller, and where it stands.
 | `/setting/accessControl` | ❌ §5.2 — portal pre-auth / free-auth policies |
 | `/setting/dot1x` | ✅ `omada_dot1x` |
 | `/setting/radiusProfiles` | ✅ `omada_radius_profile` |
-| `/setting/macAuth` | ❌ §5.2 |
+| `/setting/macAuth` | ✅ `omada_mac_auth` |
 | `/setting/profiles/groups` | ✅ `omada_ip_group`, `omada_port_group` |
 | `/setting/profiles/timeranges` | ✅ `omada_time_range` |
 | `/setting/profiles/service-type` | ✅ `omada_service_type` |
@@ -397,7 +398,6 @@ controller returned.
 | Would become | Endpoint | Shape / notes |
 |---|---|---|
 | `omada_upnp` | `/setting/upnp` `PUT` | `{enable}` — trivial |
-| `omada_mac_auth` | `/setting/macAuth` `PATCH` | `{enable, authType, ssids[]}` |
 | `omada_mac_filter` | `/setting/firewall/macfilter` | `{enable, specification}` |
 | `omada_session_limit` | `/setting/transmission/sessionLimits` | `{sessionLimitEnable, sessionLimitMaxSize, ipSessionEnable}` + a nested `table` of per-host rules |
 | `omada_gateway_bandwidth_control` | `/setting/transmission/bandwidthControls` | `{bandwidthControlEnable, thresholdControlEnable, thresholdValue}` + nested `table`. **Distinct from** `/setting/qos/gateway/bwc` |

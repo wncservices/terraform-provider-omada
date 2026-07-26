@@ -884,6 +884,7 @@ func newMockController(t *testing.T) *httptest.Server {
 		"firewall/attackdefense": http.MethodPut,
 		"ssh":                    http.MethodPut,
 		"dot1x":                  http.MethodPatch,
+		"macAuth":                http.MethodPatch,
 		"ips":                    http.MethodPatch,
 		"snmp":                   http.MethodPut,
 	}
@@ -909,6 +910,10 @@ func newMockController(t *testing.T) *httptest.Server {
 			"snmpV1V2CEnable": false, "snmpV3Enable": true,
 			"username": "test", "password": "seeded-v3-password",
 			"securityLevel": float64(1), "authMode": float64(1), "privacyMode": float64(1),
+			"unmodelledKey": "keep-me",
+		},
+		"macAuth": {
+			"enable": false, "authType": float64(0), "ssids": []any{},
 			"unmodelledKey": "keep-me",
 		},
 		// IPS. The *Categories lists are controller-owned reference data: the
