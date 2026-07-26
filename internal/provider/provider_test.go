@@ -880,14 +880,15 @@ func newMockController(t *testing.T) *httptest.Server {
 	// provider records the confirmed verb per SettingDoc. The mock enforces it:
 	// the wrong verb answers -1600 exactly as the real controller does.
 	singletonVerb := map[string]string{
-		"transmission/alg":       http.MethodPut,
-		"firewall/attackdefense": http.MethodPut,
-		"ssh":                    http.MethodPut,
-		"dot1x":                  http.MethodPatch,
-		"macAuth":                http.MethodPatch,
-		"ips":                    http.MethodPatch,
-		"snmp":                   http.MethodPut,
-		"upnp":                   http.MethodPut,
+		"transmission/alg":           http.MethodPut,
+		"transmission/sessionLimits": http.MethodPut,
+		"firewall/attackdefense":     http.MethodPut,
+		"ssh":                        http.MethodPut,
+		"dot1x":                      http.MethodPatch,
+		"macAuth":                    http.MethodPatch,
+		"ips":                        http.MethodPatch,
+		"snmp":                       http.MethodPut,
+		"upnp":                       http.MethodPut,
 	}
 	singletons := map[string]map[string]any{
 		"ssh": {
@@ -918,6 +919,15 @@ func newMockController(t *testing.T) *httptest.Server {
 			"unmodelledKey": "keep-me",
 		},
 		"upnp": {"enable": false, "unmodelledKey": "keep-me"},
+		// Session limits. The `table` of per-host rules is controller-owned as
+		// far as this resource is concerned: it must survive an update and
+		// must never be written back, so the mock rejects a write containing it.
+		"transmission/sessionLimits": {
+			"sessionLimitEnable": false, "sessionLimitMaxSize": float64(128),
+			"ipSessionEnable": true,
+			"table":           map[string]any{"totalRows": float64(0), "data": []any{}},
+			"unmodelledKey":   "keep-me",
+		},
 		// IPS. The *Categories lists are controller-owned reference data: the
 		// provider must report them but never send them, so this handler
 		// rejects a write that includes one.
@@ -977,7 +987,8 @@ func newMockController(t *testing.T) *httptest.Server {
 						return
 					}
 					switch k {
-					case "lowCategories", "mediumCategories", "highCategories", "allCategories":
+					case "table",
+						"lowCategories", "mediumCategories", "highCategories", "allCategories":
 						writeEnvelope(w, -1001, "controller-owned key "+k+" must not be sent", nil)
 						return
 					}
