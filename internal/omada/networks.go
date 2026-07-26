@@ -117,9 +117,19 @@ func (c *Client) CreateNetwork(ctx context.Context, siteID string, fields map[st
 		"purpose":         valueOr(fields, "purpose", 1),
 		"vlan":            fields["vlan"],
 		"igmpSnoopEnable": valueOr(fields, "igmpSnoopEnable", false),
+		"interfaceIds":    fields["interfaceIds"],
 	}
 	if seed["vlan"] == nil {
 		return nil, fmt.Errorf("creating network %q: vlan is required", name)
+	}
+	// The controller rejects a network bound to nothing (-33515 "LAN interfaces
+	// could not be none"), so this cannot be deferred to the update call the way
+	// the rest of the configuration is. It is checked here to give a better
+	// message than the raw code, and because the check is cheap.
+	if ifaces, ok := seed["interfaceIds"].([]string); !ok || len(ifaces) == 0 {
+		return nil, fmt.Errorf("creating network %q: interface_ids must list at least one LAN "+
+			"interface — the controller refuses a network that is not bound to one (-33515). "+
+			"Copy the ids from an existing network via the omada_networks data source", name)
 	}
 
 	path := c.OpenAPIPathVersion(2, siteID, "/lan-networks")

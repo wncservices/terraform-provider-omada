@@ -409,13 +409,24 @@ These cannot be finished by writing code alone.
    `POST /openapi/v2/{omadacId}/sites/{site}/lan-networks`; the web API rejects
    the POST outright, and there is no `/networks/confirm` two-step (that path
    answers `-1600`). The required field set is small — `name`, `purpose`,
-   `vlan`, `igmpSnoopEnable` — and was derived from the endpoint's own
-   validation errors without creating anything, by seeding a body with
+   `vlan`, `igmpSnoopEnable` — and plus `interfaceIds` — was derived from the
+   endpoint's own validation errors without creating anything, by seeding a body
+   with
    `vlan: 99999`: out of the 1–4094 range, so the request could never succeed
    no matter which other fields were filled in. Worth copying whenever a create
    contract has to be mapped on live hardware.
 
-   `CreateNetwork` sends only those four and then applies the rest of the
+   One constraint hides behind the range check and is worth calling out,
+   because it is the kind a probe designed to never succeed cannot find: with a
+   *valid* vlan the controller answers **`-33515 LAN interfaces could not be
+   none`**. A network must be bound to at least one LAN interface, so
+   `interfaceIds` is required at create and cannot be deferred to the follow-up
+   update the way the rest of the configuration is. The unsatisfiable-body
+   technique is still the right first move — it maps the contract for free —
+   but it finds only the checks that run *before* the one deliberately failed.
+   Expect a second round of discovery once the body is otherwise valid.
+
+   `CreateNetwork` sends those five and then applies the rest of the
    configuration through the ordinary web-API update. Translating every field
    into Open API shape would mean maintaining a second mapping (the surfaces
    disagree — `dhcpSettingsVO` vs `dhcpSettings`) that only create would

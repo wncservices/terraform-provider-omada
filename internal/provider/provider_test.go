@@ -150,14 +150,19 @@ func newMockController(t *testing.T) *httptest.Server {
 		_ = json.NewDecoder(r.Body).Decode(&in)
 		// The endpoint requires exactly these four and the provider seeds only
 		// them; anything else means it started sending web-API shape here.
-		for _, k := range []string{"name", "purpose", "vlan", "igmpSnoopEnable"} {
+		for _, k := range []string{"name", "purpose", "vlan", "igmpSnoopEnable", "interfaceIds"} {
 			if _, ok := in[k]; !ok {
 				writeEnvelope(w, -1001, "Parameter ["+k+"] should not be empty", nil)
 				return
 			}
 		}
-		if len(in) != 4 {
+		if len(in) != 5 {
 			writeEnvelope(w, -1001, "unexpected fields in create body", nil)
+			return
+		}
+		// A network must be bound to a LAN interface, like the real controller.
+		if ifaces, _ := in["interfaceIds"].([]any); len(ifaces) == 0 {
+			writeEnvelope(w, -33515, "LAN interfaces could not be none.", nil)
 			return
 		}
 		mu.Lock()

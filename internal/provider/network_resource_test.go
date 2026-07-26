@@ -110,3 +110,27 @@ resource "omada_network" "new" {
 		},
 	})
 }
+
+// TestAccNetworkCreateRequiresInterfaces covers the constraint that only shows
+// up once the VLAN id is valid: the controller refuses a network bound to no
+// LAN interface (-33515). It cannot be deferred to the follow-up update the way
+// the rest of the configuration is, so create has to check it.
+func TestAccNetworkCreateRequiresInterfaces(t *testing.T) {
+	srv := newMockController(t)
+
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: testProviderConfigOpenAPI(srv.URL) + `
+resource "omada_network" "new" {
+  name           = "LAB"
+  vlan_id        = 77
+  gateway_subnet = "10.10.77.1/24"
+  interface_ids  = []
+}`,
+				ExpectError: regexp.MustCompile(`at least one LAN interface`),
+			},
+		},
+	})
+}
