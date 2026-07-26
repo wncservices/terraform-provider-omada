@@ -181,6 +181,8 @@ preserved via read-modify-write.
 | `omada_alg` | R/U (singleton) | live | FTP/H.323/PPTP/IPsec/SIP ALGs; update is `PUT` |
 | `omada_ssh_settings` | R/U (singleton) | live | device SSH; update is `PUT` |
 | `omada_dot1x` | R/U (singleton) | live | site-wide 802.1X; update is `PATCH` |
+| `omada_service_type` | CRUD | live | create returns the id as a **bare string**; update is `PUT` |
+| `omada_qos_bandwidth_control` | CRUD | live | one rule per WAN port (`-43310`); create returns null, resolved by WAN |
 | `omada_time_range` | CRUD | live | schedule profile; create returns `profileId`; list has no `totalRows` |
 | `omada_radius_profile` | CRUD | live | bare-array list; `radiusPwd` write-only, carried across updates |
 | `omada_dhcp_reservation` | CRUD | live | item path keyed on **MAC**; unknown key still answers 0 |
@@ -481,6 +483,20 @@ data source over either is straightforward *once a row exists* — until then th
 item shape would be guesswork, which is the same trap §5.8a was written about.
 If you need one, generate an event first (or capture the UI's request while its
 table has rows) and the shape follows.
+
+### 5.8b The `1_<hex>` WAN interface id
+
+Three separate features identify a WAN port by the same opaque
+`1_c967cf39292e474291e409b4dfe7f0cd` form: `omada_disable_nat.interface`,
+`omada_qos_bandwidth_control.wan`, and one-to-one NAT's `interfaceIds`
+(§5.9). It is not the `portUuid` from `/setting/wan/networks`, and no endpoint
+found so far lists these ids on their own — `/setting/wan-ports` looks like the
+intended source but rejects every query parameter tried with `-1001`.
+
+For now the id is obtained by reading an existing object that references one,
+or from a UI capture. Cracking `/setting/wan-ports` would let all three
+resources reference a WAN by name instead, and is the single most useful small
+gap left.
 
 ### 5.9 NAT gaps — disable-NAT shipped, one-to-one NAT blocked by hardware
 
