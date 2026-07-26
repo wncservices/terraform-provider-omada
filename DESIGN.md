@@ -100,6 +100,12 @@ Two behaviours are baked in because every one of these endpoints shares them:
   `support*` / `exist*` capability flags the UI uses to decide what to render.
   These must be stripped before writing back; `controllerOwnedKey` does it, and a
   mock handler fails the test if any leaks into a write.
+- **A settings document can carry secrets.** `/setting/snmp` returns the SNMP
+  v3 `password` in **plaintext** once v3 is enabled, and the v1/v2c
+  `communityString` likewise. The singleton scaffold models such keys with
+  `kindStringWO`: `WriteOnly` in the schema, read from `req.Config` (write-only
+  values are null in the plan), and never written to state. The read-modify-write
+  then preserves a secret that was not re-supplied, because `cur` still holds it.
 - **A document can mix settings with reference data.** `/setting/ips` returns
   `lowCategories` / `mediumCategories` / `highCategories` / `allCategories`
   describing what each protection level covers. Those are not configuration:
@@ -170,6 +176,7 @@ preserved via read-modify-write.
 | `omada_vpn` | CRUD | **read live, writes inferred** | see §5.2 |
 | `omada_attack_defense` | R/U (singleton) | live · subset | flood defense / packet anomaly / IP options; update is `PUT` |
 | `omada_ips_whitelist` | C/R/D | live | read at `/grid/`, write one level up; no update verb |
+| `omada_snmp` | R/U (singleton) | live | update is `PUT`; v3 password returned in plaintext, so write-only |
 | `omada_ips` | R/U (singleton) | live | update is `PATCH`; `*Categories` are controller-owned reference data |
 | `omada_alg` | R/U (singleton) | live | FTP/H.323/PPTP/IPsec/SIP ALGs; update is `PUT` |
 | `omada_ssh_settings` | R/U (singleton) | live | device SSH; update is `PUT` |
