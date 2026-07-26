@@ -199,6 +199,7 @@ preserved via read-modify-write.
 | `omada_static_route` | CRUD | live | update is `PUT` (`PATCH` → `-1600`) |
 | `omada_portal` | CRUD | live · subset | write-only `password`; bare-array list; PATCH RMW |
 | `omada_vpn` | CRUD | **read live, writes inferred** | see §5.2 |
+| `omada_mac_filter` | R/U (singleton) | live | master toggle only; entries live elsewhere |
 | `omada_attack_defense` | R/U (singleton) | live · subset | flood defense / packet anomaly / IP options; update is `PUT` |
 | `omada_ips_whitelist` | C/R/D | live | read at `/grid/`, write one level up; no update verb |
 | `omada_snmp` | R/U (singleton) | live | update is `PUT`; v3 password returned in plaintext, so write-only |
@@ -209,6 +210,7 @@ preserved via read-modify-write.
 | `omada_ssh_settings` | R/U (singleton) | live | device SSH; update is `PUT` |
 | `omada_mac_auth` | R/U (singleton) | live | update is `PATCH` |
 | `omada_dot1x` | R/U (singleton) | live | site-wide 802.1X; update is `PATCH` |
+| `omada_rate_limit_profile` | CRUD | live | bare-array list; a limit is absent while its enable flag is false |
 | `omada_service_type` | CRUD | live | create returns the id as a **bare string**; update is `PUT` |
 | `omada_qos_bandwidth_control` | CRUD | live | one rule per WAN port (`-43310`); create returns null, resolved by WAN |
 | `omada_time_range` | CRUD | live | schedule profile; create returns `profileId`; list has no `totalRows` |
@@ -336,7 +338,7 @@ Every configuration endpoint found on the controller, and where it stands.
 | `/setting/qos/gateway/bwc` | ✅ `omada_qos_bandwidth_control` |
 | `/setting/firewall/acls` | ✅ `omada_firewall_acl` (inline ports: §5.6) |
 | `/setting/firewall/attackdefense` | ✅ `omada_attack_defense` |
-| `/setting/firewall/macfilter` | ❌ §5.2 |
+| `/setting/firewall/macfilter` | ✅ `omada_mac_filter` (toggle only) |
 | `/setting/firewall/urlfilterings` | ❌ §5.2 — needs its query parameter |
 | `/setting/ips` | ✅ `omada_ips` |
 | `/setting/ips/whitelist` | ✅ `omada_ips_whitelist` |
@@ -349,7 +351,7 @@ Every configuration endpoint found on the controller, and where it stands.
 | `/setting/profiles/groups` | ✅ `omada_ip_group`, `omada_port_group` |
 | `/setting/profiles/timeranges` | ✅ `omada_time_range` |
 | `/setting/profiles/service-type` | ✅ `omada_service_type` |
-| `/setting/profiles/rateLimits` | ❌ §5.2 |
+| `/setting/profiles/rateLimits` | ✅ `omada_rate_limit_profile` |
 | `/setting/profiles/apns` | ❌ §5.2 — cellular APNs |
 | `/setting/service/mdns` | ✅ `omada_mdns_reflector` |
 | `/setting/service/dhcp` | ✅ `omada_dhcp_reservation` |
@@ -399,9 +401,7 @@ controller returned.
 
 | Would become | Endpoint | Shape / notes |
 |---|---|---|
-| `omada_mac_filter` | `/setting/firewall/macfilter` | `{enable, specification}` |
 | `omada_gateway_bandwidth_control` | `/setting/transmission/bandwidthControls` `PUT` | **Read/write asymmetry:** the GET nests `{bandwidthControlEnable, thresholdControlEnable, thresholdValue}` under a `bandwidthControl` object, but the PUT wants them **flat** — sending the nested form is rejected `-1001`. Also carries a per-host `table`. **Distinct from** `/setting/qos/gateway/bwc` |
-| `omada_rate_limit_profile` | `/setting/profiles/rateLimits` | array; `{name, downLimitEnable, upLimitEnable, isDefault}` — `isDefault` is controller-owned |
 | `omada_policy_route` | `/setting/transmission/policyRoutings` | paginated, empty on the dev site — needs one entry or a capture for the item shape |
 | `omada_ddns` | `/setting/service/ddns` | paginated, empty; `support*` flags indicate TP-Link DDNS + custom providers |
 | `omada_reboot_schedule`, `omada_poe_schedule` | `/setting/service/rebootSchedules`, `/poeSchedules` | paginated, empty; pair naturally with `omada_time_range` |

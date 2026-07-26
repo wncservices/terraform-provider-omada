@@ -889,6 +889,7 @@ func newMockController(t *testing.T) *httptest.Server {
 		"ips":                        http.MethodPatch,
 		"snmp":                       http.MethodPut,
 		"upnp":                       http.MethodPut,
+		"firewall/macfilter":         http.MethodPut,
 	}
 	singletons := map[string]map[string]any{
 		"ssh": {
@@ -914,11 +915,12 @@ func newMockController(t *testing.T) *httptest.Server {
 			"securityLevel": float64(1), "authMode": float64(1), "privacyMode": float64(1),
 			"unmodelledKey": "keep-me",
 		},
+		"firewall/macfilter": {"enable": false, "unmodelledKey": "keep-me"},
+		"upnp":               {"enable": false, "unmodelledKey": "keep-me"},
 		"macAuth": {
 			"enable": false, "authType": float64(0), "ssids": []any{},
 			"unmodelledKey": "keep-me",
 		},
-		"upnp": {"enable": false, "unmodelledKey": "keep-me"},
 		// Session limits. The `table` of per-host rules is controller-owned as
 		// far as this resource is concerned: it must survive an update and
 		// must never be written back, so the mock rejects a write containing it.
@@ -1502,6 +1504,73 @@ func newMockController(t *testing.T) *httptest.Server {
 			_ = json.NewDecoder(r.Body).Decode(&in)
 			in["id"] = id
 			bwc[id] = in
+			writeEnvelope(w, 0, "", in)
+		default:
+			writeEnvelope(w, -1600, "Unsupported request path.", nil)
+		}
+	})
+
+	// Rate-limit profiles. Bare array, create returns {"id": ...}, update is
+	// PATCH. The seeded built-in exists so the test can check `is_builtin` is
+	// reported; the mock also drops a limit whose enable flag is false, which
+	// is what the controller does and what the plan-time validation guards.
+	rateLimits := map[string]map[string]any{
+		"rl-default": {"id": "rl-default", "name": "Default", "isDefault": true,
+			"downLimitEnable": false, "upLimitEnable": false},
+	}
+	rlNext := 1
+	const rlBase = "/abc123/api/v2/sites/site-1/setting/profiles/rateLimits"
+	normaliseRL := func(m map[string]any) {
+		if e, _ := m["downLimitEnable"].(bool); !e {
+			delete(m, "downLimit")
+		}
+		if e, _ := m["upLimitEnable"].(bool); !e {
+			delete(m, "upLimit")
+		}
+	}
+	mux.HandleFunc(rlBase, func(w http.ResponseWriter, r *http.Request) {
+		if !requireToken(w, r) {
+			return
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		switch r.Method {
+		case http.MethodPost:
+			var in map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&in)
+			id := fmt.Sprintf("rl-%d", rlNext)
+			rlNext++
+			in["id"] = id
+			in["isDefault"] = false
+			normaliseRL(in)
+			rateLimits[id] = in
+			writeEnvelope(w, 0, "", map[string]any{"id": id})
+		default:
+			data := make([]map[string]any, 0, len(rateLimits))
+			for _, v := range rateLimits {
+				data = append(data, v)
+			}
+			writeEnvelope(w, 0, "", data)
+		}
+	})
+	mux.HandleFunc(rlBase+"/", func(w http.ResponseWriter, r *http.Request) {
+		if !requireToken(w, r) {
+			return
+		}
+		id := strings.TrimPrefix(r.URL.Path, rlBase+"/")
+		mu.Lock()
+		defer mu.Unlock()
+		switch r.Method {
+		case http.MethodDelete:
+			delete(rateLimits, id)
+			writeEnvelope(w, 0, "", nil)
+		case http.MethodPatch:
+			var in map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&in)
+			in["id"] = id
+			in["isDefault"] = false
+			normaliseRL(in)
+			rateLimits[id] = in
 			writeEnvelope(w, 0, "", in)
 		default:
 			writeEnvelope(w, -1600, "Unsupported request path.", nil)
