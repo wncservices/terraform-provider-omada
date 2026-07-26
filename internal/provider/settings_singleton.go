@@ -32,7 +32,7 @@ import (
 // cover them all.
 //
 // Every field is Optional + Computed with no default, per the "null is not
-// false" invariant in DESIGN.md §2.5: a field the practitioner never sets is
+// false" invariant in DESIGN.md §2.6: a field the practitioner never sets is
 // left alone on the controller and reflected back from the live document.
 
 type settingKind int

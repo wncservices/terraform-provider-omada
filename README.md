@@ -8,8 +8,8 @@ the Omada UI uses. TP-Link publishes no documentation for it; endpoints and payl
 shapes are derived from the UI. This is deliberate: it's the only surface with full
 config coverage, including gateway/router settings that other providers omit.
 
-> **Status: released.** `v0.4.0` is the current release on the Terraform Registry —
-> **27 resources** (table below) + 6 data sources, each with acceptance tests in
+> **Status: released.** `v0.6.1` is the current release on the Terraform Registry —
+> **29 resources** (table below) + 6 data sources, each with acceptance tests in
 > CI. Verified against a live Omada v6.2 controller.
 
 **Contributing?** See [`DESIGN.md`](DESIGN.md) for the architecture, the coverage
@@ -41,6 +41,8 @@ without reading the whole repo first.
 | `omada_alg` | singleton, read/update verified live ✅; FTP/H.323/PPTP/IPsec/SIP application-layer gateways |
 | `omada_ssh_settings` | singleton, read/update verified live ✅; SSH to managed devices |
 | `omada_dot1x` | singleton, read/update verified live ✅; site-wide 802.1X (RADIUS profile not yet modelled) |
+| `omada_service_type` | custom protocol/port profile, full CRUD verified live ✅; built-ins reported read-only |
+| `omada_qos_bandwidth_control` | gateway QoS shaping, full CRUD verified live ✅; one rule per WAN port |
 | `omada_time_range` | reusable schedule profile, full CRUD verified live ✅; referenced by SSID/rule schedules |
 | `omada_radius_profile` | full CRUD verified live ✅; `shared_secret` is a true Terraform **write-only** attribute (never persisted) |
 | `omada_dhcp_reservation` | full CRUD verified live ✅; **keyed on the MAC, not the id**; MAC spellings compare equivalently |
@@ -107,9 +109,23 @@ provider reads back, so only `WriteOnly` actually keeps them out.
   provider does not implement.
 - **Per-device config is not modelled** (individual switch-port overrides, AP radio
   settings). The provider manages site-wide profiles, not device-level overrides.
+- **One-to-one NAT is not managed.** Its field set is known, but the controller
+  requires a WAN on a **static-IP** connection (`-34282`) and the development site
+  has none, so the write path cannot be exercised. An untested NAT write path is
+  not something to ship.
+- **A WAN port is referenced by an opaque id.** `omada_disable_nat`,
+  `omada_qos_bandwidth_control` (and one-to-one NAT) take the controller's
+  `1_<hex>` interface id rather than a name, because no endpoint has been found
+  that lists those ids — `/setting/wan-ports` exists but rejects every query
+  parameter tried. Read the id from an existing object or the controller UI.
+- **WLAN optimization is an action, not configuration.** `/rfPlanning` accepts a
+  parameter document and persists nothing, so it is not exposed; a Terraform
+  resource that reported success while changing nothing would be worse than none.
 
-The full, prioritised roadmap — with implementation notes for each gap — is in
-[`DESIGN.md`](DESIGN.md#5-whats-missing--the-roadmap).
+A **full coverage audit** — every configuration endpoint found on a live
+controller, and whether it is managed, blocked, or deliberately out of scope —
+plus per-item implementation notes, is in
+[`DESIGN.md`](DESIGN.md#5-whats-left--the-road-to-complete).
 
 ## Usage
 
@@ -118,7 +134,7 @@ terraform {
   required_providers {
     omada = {
       source  = "wncservices/omada"
-      version = "~> 0.1"
+      version = "~> 0.6"
     }
   }
 }

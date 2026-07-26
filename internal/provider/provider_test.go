@@ -1371,6 +1371,125 @@ func newMockController(t *testing.T) *httptest.Server {
 		_ = json.NewEncoder(w).Encode(map[string]any{"logs": notifications, "audit": auditNotifications})
 	})
 
+	// Service types. Seeded with a built-in so the test can assert the provider
+	// reports `defaultServiceType` without trying to manage it. Create answers
+	// with the new id as a BARE STRING; update is PUT (PATCH -> -1600).
+	serviceTypes := map[string]map[string]any{
+		"BI-ST-SSH": {"id": "BI-ST-SSH", "name": "SSH", "defaultServiceType": true,
+			"protocol": float64(0), "sourcePorts": "0-65535", "destPorts": "22-22", "description": "SSH"},
+	}
+	stNext := 1
+	const stBase = "/abc123/api/v2/sites/site-1/setting/profiles/service-type"
+	mux.HandleFunc(stBase, func(w http.ResponseWriter, r *http.Request) {
+		if !requireToken(w, r) {
+			return
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		switch r.Method {
+		case http.MethodPost:
+			var in map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&in)
+			id := fmt.Sprintf("st-%d", stNext)
+			stNext++
+			in["id"] = id
+			in["defaultServiceType"] = false
+			serviceTypes[id] = in
+			writeEnvelope(w, 0, "", id)
+		default:
+			data := make([]map[string]any, 0, len(serviceTypes))
+			for _, v := range serviceTypes {
+				data = append(data, v)
+			}
+			writeEnvelope(w, 0, "", map[string]any{
+				"totalRows": len(data), "currentPage": 1, "currentSize": 100, "data": data,
+			})
+		}
+	})
+	mux.HandleFunc(stBase+"/", func(w http.ResponseWriter, r *http.Request) {
+		if !requireToken(w, r) {
+			return
+		}
+		id := strings.TrimPrefix(r.URL.Path, stBase+"/")
+		mu.Lock()
+		defer mu.Unlock()
+		switch r.Method {
+		case http.MethodDelete:
+			delete(serviceTypes, id)
+			writeEnvelope(w, 0, "", nil)
+		case http.MethodPut:
+			var in map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&in)
+			in["id"] = id
+			in["defaultServiceType"] = false
+			serviceTypes[id] = in
+			writeEnvelope(w, 0, "", in)
+		default:
+			writeEnvelope(w, -1600, "Unsupported request path.", nil)
+		}
+	})
+
+	// QoS bandwidth control. Two controller behaviours matter and are both
+	// reproduced: one rule per WAN port (-43310 for a second), and a create
+	// that returns a NULL result, so the client must resolve the new rule by
+	// its WAN rather than reading an id out of the response.
+	bwc := map[string]map[string]any{}
+	bwcNext := 1
+	const bwcBase = "/abc123/api/v2/sites/site-1/setting/qos/gateway/bwc"
+	mux.HandleFunc(bwcBase, func(w http.ResponseWriter, r *http.Request) {
+		if !requireToken(w, r) {
+			return
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		switch r.Method {
+		case http.MethodPost:
+			var in map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&in)
+			wan, _ := in["wan"].(string)
+			for _, e := range bwc {
+				if cur, _ := e["wan"].(string); cur == wan {
+					writeEnvelope(w, -43310, "The WAN Port is being used by other bandwidths.", nil)
+					return
+				}
+			}
+			id := fmt.Sprintf("bwc-%d", bwcNext)
+			bwcNext++
+			in["id"] = id
+			bwc[id] = in
+			writeEnvelope(w, 0, "", nil)
+		default:
+			data := make([]map[string]any, 0, len(bwc))
+			for _, v := range bwc {
+				data = append(data, v)
+			}
+			writeEnvelope(w, 0, "", map[string]any{
+				"totalRows": len(data), "currentPage": 1, "currentSize": 100, "data": data,
+			})
+		}
+	})
+	mux.HandleFunc(bwcBase+"/", func(w http.ResponseWriter, r *http.Request) {
+		if !requireToken(w, r) {
+			return
+		}
+		id := strings.TrimPrefix(r.URL.Path, bwcBase+"/")
+		mu.Lock()
+		defer mu.Unlock()
+		switch r.Method {
+		case http.MethodDelete:
+			delete(bwc, id)
+			writeEnvelope(w, 0, "", nil)
+		case http.MethodPut:
+			var in map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&in)
+			in["id"] = id
+			bwc[id] = in
+			writeEnvelope(w, 0, "", in)
+		default:
+			writeEnvelope(w, -1600, "Unsupported request path.", nil)
+		}
+	})
+
 	mux.HandleFunc("/debug/singletons", func(w http.ResponseWriter, _ *http.Request) {
 		mu.Lock()
 		defer mu.Unlock()
