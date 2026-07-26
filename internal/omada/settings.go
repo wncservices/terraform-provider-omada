@@ -57,6 +57,13 @@ var (
 	MACAuthSetting = SettingDoc{Path: "/setting/macAuth", Verb: http.MethodPatch}
 	// UPnP. PUT, and a single field.
 	UPnPSetting = SettingDoc{Path: "/setting/upnp", Verb: http.MethodPut}
+	// Session limits. PUT. The document also carries a paginated `table` of
+	// per-host rules, which is a separate concern and is left untouched by the
+	// read-modify-write.
+	SessionLimitSetting = SettingDoc{
+		Path: "/setting/transmission/sessionLimits", Verb: http.MethodPut,
+		ReadOnlyKeys: []string{"table"},
+	}
 	// IPS/IDS. PATCH, like dot1x. The *Categories lists describe which
 	// signature categories each protection level covers — reference data the
 	// controller maintains, not configuration.
