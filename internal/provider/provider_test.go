@@ -1150,6 +1150,57 @@ func newMockController(t *testing.T) *httptest.Server {
 			"unmodelledKey": "keep-me",
 		},
 	}
+	// The gateway device document. PATCH is a genuine partial update on the real
+	// controller, so the mock applies only the keys it receives — a provider
+	// that sent a whole read-back document would clobber unrelated settings
+	// here and the "untouched" checks would catch it.
+	gatewayDoc := map[string]any{
+		"mac": "F0-09-0D-D0-97-76", "name": "Mordor", "model": "ER707-M2", "ip": "10.10.99.1",
+		"ledSetting": float64(2), "lldpEnable": true, "lldpSetting": float64(1),
+		"hwOffloadEnable": true, "ippt": false, "supportIppt": false,
+		"snmpSeting":  map[string]any{"location": "", "contact": ""},
+		"iptvSetting": map[string]any{"igmpEnable": true, "igmpVersion": "2"},
+		// The gateway's physical ports. The provider must never write these.
+		"portConfigs":   []any{map[string]any{"port": float64(1), "pvid": float64(0)}},
+		"unmodelledKey": "keep-me",
+	}
+	mux.HandleFunc("/abc123/api/v2/sites/site-1/gateways/F0-09-0D-D0-97-76", func(w http.ResponseWriter, r *http.Request) {
+		if !requireToken(w, r) {
+			return
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		switch r.Method {
+		case http.MethodGet:
+		case http.MethodPatch:
+			var in map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&in)
+			for _, k := range []string{"portConfigs", "portGeneralConfigs"} {
+				if _, sent := in[k]; sent {
+					writeEnvelope(w, -1001, "must not write "+k+" here", nil)
+					return
+				}
+			}
+			for k, v := range in {
+				gatewayDoc[k] = v
+			}
+		default: // PUT, POST
+			writeEnvelope(w, -1600, "Unsupported request path.", nil)
+			return
+		}
+		out := map[string]any{}
+		for k, v := range gatewayDoc {
+			out[k] = v
+		}
+		writeEnvelope(w, 0, "", out)
+	})
+
+	mux.HandleFunc("/debug/gateway", func(w http.ResponseWriter, _ *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		_ = json.NewEncoder(w).Encode(map[string]map[string]any{"gateway": gatewayDoc})
+	})
+
 	// IPTV. The port list belongs to the controller: the provider may flip each
 	// row's `status` but must never invent, drop or rename a row, so the handler
 	// rejects a write whose port set does not match.
