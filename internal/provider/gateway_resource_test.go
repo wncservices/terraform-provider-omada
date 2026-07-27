@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
+	"github.com/hashicorp/terraform-plugin-testing/plancheck"
 	"github.com/hashicorp/terraform-plugin-testing/terraform"
 )
 
@@ -89,6 +90,52 @@ resource "omada_gateway" "this" {
 					resource.TestCheckResourceAttr("omada_gateway.this", "igmp_enable", "true"),
 					checkUntouched,
 				),
+			},
+		},
+	})
+}
+
+// TestAccGatewayImportWithoutSitePrefix reproduces a real failure from the
+// homelab and pins the fix.
+//
+// The import id may omit the "<site>/" prefix. When it does, `site` used to
+// import as null — so a configuration that names the site read as a *change*,
+// and because `site` forces replacement the plan proposed replacing the
+// gateway it had just adopted. Every computed attribute went "known after
+// apply" with it, which is what made the plan alarming enough to notice.
+//
+// `site` is now Computed as well as Optional and records the canonical
+// resolved name, so the imported state already says "Default" and the plan is
+// empty. The final step asserts exactly that: no changes at all, which fails
+// loudly if the attribute ever goes back to Optional-only.
+func TestAccGatewayImportWithoutSitePrefix(t *testing.T) {
+	srv := newMockController(t)
+
+	config := testProviderConfig(srv.URL) + `
+resource "omada_gateway" "this" {
+  site = "Default"
+  mac  = "F0-09-0D-D0-97-76"
+  name = "Mordor"
+}`
+
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{Config: config},
+			{
+				ResourceName: "omada_gateway.this",
+				ImportState:  true,
+				// Deliberately bare: no "<site>/" prefix.
+				ImportStateId:     "F0-09-0D-D0-97-76",
+				ImportStateVerify: true,
+			},
+			{
+				Config: config,
+				ConfigPlanChecks: resource.ConfigPlanChecks{
+					PreApply: []plancheck.PlanCheck{
+						plancheck.ExpectEmptyPlan(),
+					},
+				},
 			},
 		},
 	})

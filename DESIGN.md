@@ -206,6 +206,27 @@ apart because they fail differently:
   settings scaffold carries an `OpenAPI bool` on `SettingDoc` for this, and
   `doSetting` dispatches on it.
 
+### 2.7a `site` must be Optional **and** Computed
+
+Every resource takes an optional `site`, and it forces replacement. Declaring it
+`Optional` alone looks right and is a trap — one that reached a live homelab
+plan before it was caught.
+
+The import id for these resources allows omitting the `<site>/` prefix. When it
+is omitted, an `Optional`-only `site` imports as **null**. A configuration that
+names its site then reads as a *change* to a replace-forcing attribute, so the
+plan proposes **replacing the hardware it has just adopted** — and drags every
+computed attribute to "known after apply" with it.
+
+So `site` is `Optional` + `Computed` + `UseStateForUnknown` + `RequiresReplace`,
+and read/apply record the **canonical resolved name** (`ResolveSite(...).Name`,
+not what the caller asked for). Both halves matter: the schema alone still lets
+an unset site drift, and writing the name alone would be an inconsistent result
+for an Optional-only attribute.
+
+`TestAccGatewayImportWithoutSitePrefix` pins it — bare import id, config naming
+the site, plan asserted empty.
+
 ### 2.8 Sparse keyed collections
 
 Some documents carry a long list of keyed entries where most of each entry is
