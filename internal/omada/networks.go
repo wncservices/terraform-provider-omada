@@ -80,16 +80,133 @@ func networksPath(siteID string) string {
 //
 // NOTE: creating a brand-new "interface" network is not supported by this
 // endpoint on v6.2 controllers (the UI uses the Omada OpenAPI). See the README.
+// CreateNetwork creates a LAN network through the Open API.
+//
+// Create is the one network operation the web API will not do — POSTing to
+// /setting/lan/networks is rejected outright. It lives on the Open API instead:
+//
+//	POST /openapi/v2/{omadacId}/sites/{site}/lan-networks
+//
+// (v1 exists too but demands a longer required-field list for no benefit.)
+//
+// **Only the four fields the endpoint requires are sent here**, and everything
+// else the practitioner configured is applied straight afterwards by the
+// ordinary web-API update. That split is deliberate. The two surfaces describe
+// a network differently — the Open API nests DHCP under `dhcpSettingsVO`, the
+// web API uses `dhcpSettings` — so translating the full configuration into Open
+// API shape would mean maintaining a second, largely untested mapping of every
+// field, and a mistake in it would land on a live VLAN. Creating a minimal
+// network and then updating it through the code path that is already exercised
+// on every apply is both less code and better tested.
+//
+// The consequence worth knowing: creating a network is two calls, so an
+// interruption between them can leave a network that exists but is not yet
+// fully configured. It will be reconciled on the next apply.
 func (c *Client) CreateNetwork(ctx context.Context, siteID string, fields map[string]any) (*Network, error) {
+	if !c.openAPIConfigured() {
+		return nil, fmt.Errorf("creating a network needs Open API credentials: %w", ErrOpenAPINotConfigured)
+	}
+
 	name, _ := fields["name"].(string)
-	var created Network
-	if err := c.Do(ctx, "POST", networksPath(siteID), fields, &created); err != nil {
-		return nil, fmt.Errorf("creating network: %w", err)
+	if name == "" {
+		return nil, fmt.Errorf("creating network: name is required")
 	}
-	if created.ID != "" {
-		return &created, nil
+
+	purpose, err := openAPIPurpose(fields["purpose"])
+	if err != nil {
+		return nil, fmt.Errorf("creating network %q: %w", name, err)
 	}
-	return c.getNetworkByName(ctx, siteID, name)
+
+	seed := map[string]any{
+		"name":            name,
+		"purpose":         purpose,
+		"vlan":            fields["vlan"],
+		"igmpSnoopEnable": valueOr(fields, "igmpSnoopEnable", false),
+		"interfaceIds":    fields["interfaceIds"],
+		"gatewaySubnet":   fields["gatewaySubnet"],
+	}
+	if seed["vlan"] == nil {
+		return nil, fmt.Errorf("creating network %q: vlan is required", name)
+	}
+	// Required whenever purpose is "interface" (-35930), which is every network
+	// this provider can currently create.
+	if sub, _ := seed["gatewaySubnet"].(string); sub == "" {
+		return nil, fmt.Errorf("creating network %q: gateway_subnet is required", name)
+	}
+	// The controller rejects a network bound to nothing (-33515 "LAN interfaces
+	// could not be none"), so this cannot be deferred to the update call the way
+	// the rest of the configuration is. It is checked here to give a better
+	// message than the raw code, and because the check is cheap.
+	if ifaces, ok := seed["interfaceIds"].([]string); !ok || len(ifaces) == 0 {
+		return nil, fmt.Errorf("creating network %q: interface_ids must list at least one LAN "+
+			"interface — the controller refuses a network that is not bound to one (-33515). "+
+			"Copy the ids from an existing network via the omada_networks data source", name)
+	}
+
+	path := c.OpenAPIPathVersion(2, siteID, "/lan-networks")
+	if err := c.DoOpenAPI(ctx, "POST", path, seed, nil); err != nil {
+		return nil, fmt.Errorf("creating network %q: %w", name, err)
+	}
+
+	// The create response carries no id, so the new network is located by name.
+	created, err := c.getNetworkByName(ctx, siteID, name)
+	if err != nil {
+		return nil, fmt.Errorf("network %q was created but could not be read back: %w", name, err)
+	}
+
+	// Apply the rest of the configuration on the surface that supports it.
+	rest := map[string]any{}
+	for k, v := range fields {
+		if _, seeded := seed[k]; !seeded {
+			rest[k] = v
+		}
+	}
+	if len(rest) == 0 {
+		return created, nil
+	}
+	updated, err := c.UpdateNetwork(ctx, siteID, created.ID, rest)
+	if err != nil {
+		return nil, fmt.Errorf("network %q was created but its configuration could not be applied "+
+			"(it exists on the controller and will be reconciled on the next apply): %w", name, err)
+	}
+	return updated, nil
+}
+
+// openAPIPurpose translates a network purpose from the web API's spelling to the
+// Open API's.
+//
+// The two surfaces disagree: the web API calls it "interface", the Open API
+// calls it 1. That mismatch is the whole reason create seeds a minimal network
+// and lets the web-API update apply the rest — every field carried across is a
+// translation that has to be right, and this one silently produced
+// "-1001 Invalid request parameters" until it was found.
+//
+// Only "interface" is mapped, because it is the only value observed on live
+// hardware. An unknown purpose is an error rather than a guess: guessing here
+// would create a network of the wrong kind.
+func openAPIPurpose(v any) (int, error) {
+	switch p := v.(type) {
+	case nil:
+		return 1, nil
+	case int:
+		return p, nil
+	case string:
+		if p == "" || p == "interface" {
+			return 1, nil
+		}
+		return 0, fmt.Errorf("purpose %q has no known Open API equivalent, so the network cannot "+
+			"be created — only %q is mapped. Create it in the controller UI and import it instead", p, "interface")
+	default:
+		return 0, fmt.Errorf("unexpected purpose type %T", v)
+	}
+}
+
+// valueOr returns fields[key], or def when it is absent or nil.
+func valueOr(fields map[string]any, key string, def any) any {
+	if v, ok := fields[key]; ok && v != nil {
+		return v
+	}
+	return def
 }
 
 // GetNetwork returns a single network by id. The controller has no single-object
@@ -129,21 +246,44 @@ func (c *Client) UpdateNetwork(ctx context.Context, siteID, id string, fields ma
 		return nil, err
 	}
 	for k, v := range fields {
-		if k == "dhcpSettings" {
-			// merge into the existing dhcpSettings so ipRangePool etc. survive
-			base, _ := cur["dhcpSettings"].(map[string]any)
-			merged := map[string]any{}
-			for bk, bv := range base {
-				merged[bk] = bv
+		// Nested objects are merged, never replaced. The controller owns keys
+		// inside them that this provider does not model — `ipRangePool` under
+		// dhcpSettings, `proto` under lanNetworkIpv6Config — and sending a
+		// replacement object drops them. Dropping `proto` is rejected outright
+		// (`-1001 Parameter [proto] should not be null`); dropping the DHCP
+		// pool would silently discard the address range.
+		//
+		// This was originally special-cased for dhcpSettings alone, which meant
+		// every other nested object still clobbered. Merging by shape rather
+		// than by name fixes the ones not yet discovered too.
+		if incoming, ok := v.(map[string]any); ok {
+			if base, ok := cur[k].(map[string]any); ok {
+				merged := make(map[string]any, len(base)+len(incoming))
+				for bk, bv := range base {
+					merged[bk] = bv
+				}
+				for nk, nv := range incoming {
+					merged[nk] = nv
+				}
+				cur[k] = merged
+				continue
 			}
-			for nk, nv := range v.(map[string]any) {
-				merged[nk] = nv
-			}
-			cur["dhcpSettings"] = merged
-			continue
 		}
 		cur[k] = v
 	}
+	// The IPv6 block is asymmetric: the web API's GET returns it as `{enable}`
+	// only, but its PATCH rejects the object unless `proto` is present
+	// (`-1001 Parameter [proto] should not be null`). A read-modify-write cannot
+	// restore a key the read never returned, so the default is supplied here.
+	// Zero is not a guess — the Open API, which does return the field, reports
+	// `proto: 0` for every network on the site — and dropping the block instead
+	// is not an option: without it the controller answers `-1 General error`.
+	if v6, ok := cur["lanNetworkIpv6Config"].(map[string]any); ok {
+		if _, has := v6["proto"]; !has {
+			v6["proto"] = 0
+		}
+	}
+
 	if err := c.Do(ctx, "PATCH", networksPath(siteID)+"/"+id, cur, nil); err != nil {
 		return nil, fmt.Errorf("updating network %q: %w", id, err)
 	}

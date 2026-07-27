@@ -231,7 +231,7 @@ preserved via read-modify-write.
 
 | Resource / data source | CRUD | Verified | Notes |
 |---|---|---|---|
-| `omada_network` | I/R/U/D | live | **create unsupported** — see §5.1 |
+| `omada_network` | C/I/R/U/D | live | create goes through the Open API — see §5.1 |
 | `omada_lan_dns` | CRUD | live | |
 | `omada_port_forward` | CRUD | live | |
 | `omada_ip_group` | CRUD | live | delete path is `/groups/{type}/{id}` |
@@ -422,17 +422,69 @@ IP-MAC binding, switch-side QoS, standalone WLAN schedules and MAC filters.
 
 These cannot be finished by writing code alone.
 
-1. **Network create** — the UI creates networks through the official Omada
-   **OpenAPI** (`/openapi/v1/.../networks/confirm`). `/api/v2` rejects the
-   create outright. Import/read/update/delete all work.
+1. **Network create** — **done**, and it took four rounds of discovery rather
+   than one. It lives on the Open API at
+   `POST /openapi/v2/{omadacId}/sites/{site}/lan-networks`. The web API rejects
+   the POST outright, and there is **no `/networks/confirm` two-step** — that
+   path answers `-1600` on both v1 and v2, so the earlier note here was wrong.
 
-   The auth half of this is **no longer a blocker**: §2.7's client-credentials
-   flow is implemented and verified live, and §5.5 shipped on top of it. What
-   remains is the create call itself — the `/networks/confirm` two-step has not
-   been exercised, and getting it wrong on a live site means a network that
-   half-exists. It still needs an Open API application registered under
-   *Settings → Platform Integration*, which is per-controller setup a
-   practitioner does once.
+   The first round mapped the required field set — `name`, `purpose`, `vlan`,
+   `igmpSnoopEnable` — off the endpoint's own validation errors *without
+   creating anything*, by seeding the probe body with `vlan: 99999`. That is
+   outside the 1–4094 range, so the request can never succeed no matter which
+   other fields get filled in, and the walk can be pushed to a complete body
+   while only ever returning validation errors. Worth copying whenever a create
+   contract has to be mapped on hardware someone depends on.
+
+   **But that technique has a limit, and the next three rounds are it.** A body
+   that can never succeed only reveals the checks that run *before* the one
+   deliberately failed. Each of these appeared only once the previous was
+   satisfied:
+
+   | Code | Meaning | Consequence |
+   |---|---|---|
+   | `-33515` | `LAN interfaces could not be none` | `interfaceIds` is required at create; it cannot be deferred to the follow-up update |
+   | `-35930` | `When Purpose is set to Interface, gatewaySubnet cannot be null` | `gatewaySubnet` joins the seed |
+   | `-1001` | `Invalid request parameters` | the surfaces spell `purpose` differently — see below |
+
+   So: expect a second round of discovery once the body is otherwise valid, and
+   do not report a contract as "mapped" on the strength of an unsatisfiable
+   probe alone.
+
+   **The surfaces disagree on `purpose`.** The web API calls it `"interface"`, a
+   string; the Open API calls it `1`, an int. Passing the web API's value
+   straight through produced a bare `-1001 Invalid request parameters` with
+   nothing to point at the cause. `openAPIPurpose` translates it, and maps only
+   `"interface"` — the sole value observed live — erroring rather than guessing
+   on anything else, since a guess here creates a network of the wrong kind.
+
+   **A fifth round came from the update half, not the create.** With the
+   network created, the follow-up update failed `-1001 Parameter [proto] should
+   not be null`. The web API's GET returns `lanNetworkIpv6Config` as `{enable}`
+   only, but its PATCH rejects the object unless `proto` is present — a
+   read-modify-write cannot restore a key the read never returned. Dropping the
+   block instead answers `-1 General error`, so it has to be sent, with a
+   default. Zero is not a guess: the Open API, which does return the field,
+   reports `proto: 0` for every network on the site.
+
+   That also exposed a real bug in `UpdateNetwork` affecting *existing*
+   networks, not just new ones: it merged `dhcpSettings` but replaced every
+   other nested object wholesale, so any update touching one would drop the
+   controller-owned keys inside it. It now merges by shape rather than by name,
+   which fixes the nested objects nobody has hit yet as well.
+
+   `CreateNetwork` sends those five fields plus `gatewaySubnet`, then applies
+   the rest of the configuration through the ordinary web-API update. That split
+   is the whole reason the `purpose` mismatch was a one-line fix rather than a
+   systematic hazard: every field carried across the boundary is a translation
+   that has to be right, and only create would exercise it. The cost is that
+   create is two calls, so an interruption between them leaves a network that
+   exists but is not fully configured. The error says exactly that, and the next
+   apply reconciles it.
+
+   Verified end to end on the live controller: apply, a clean second plan, then
+   destroy, with the site's network list back to its original five.
+
 2. **One-to-one NAT** — the field set is complete
    (`name`, `status`, `externalIp`, `internalIp`, `dmz`, `interfaceIds`), but
    `-34282` says it requires a **WAN on a static-IP connection**, which the

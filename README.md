@@ -21,7 +21,7 @@ without reading the whole repo first.
 
 | Resource | CRUD contract |
 |---|---|
-| `omada_network` | import / read / update / delete verified live ✅ · **create: see limitation** |
+| `omada_network` | full CRUD ✅ · **create needs Open API credentials** (the web API refuses it); other operations do not |
 | `omada_lan_dns` | full CRUD verified live ✅ |
 | `omada_port_forward` | full CRUD verified live ✅ |
 | `omada_ip_group` | full CRUD verified live ✅ |

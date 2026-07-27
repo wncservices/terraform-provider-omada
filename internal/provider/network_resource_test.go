@@ -4,6 +4,7 @@
 package provider
 
 import (
+	"regexp"
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
@@ -19,7 +20,7 @@ func TestAccNetworkResource(t *testing.T) {
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
 		Steps: []resource.TestStep{
 			{ // create
-				Config: testProviderConfig(srv.URL) + `
+				Config: testProviderConfigOpenAPI(srv.URL) + `
 resource "omada_network" "test" {
   name           = "Lab"
   vlan_id        = 40
@@ -52,7 +53,7 @@ resource "omada_network" "test" {
 			},
 			{ResourceName: "omada_network.test", ImportState: true, ImportStateVerify: true},
 			{ // update: flip isolation, change lease + a DHCP option
-				Config: testProviderConfig(srv.URL) + `
+				Config: testProviderConfigOpenAPI(srv.URL) + `
 resource "omada_network" "test" {
   name           = "Lab"
   vlan_id        = 40
@@ -78,6 +79,57 @@ resource "omada_network" "test" {
 					resource.TestCheckResourceAttr("omada_network.test", "dhcp_options.#", "2"),
 					resource.TestCheckResourceAttr("omada_network.test", "dhcp_options.1.code", "66"),
 				),
+			},
+		},
+	})
+}
+
+// TestAccNetworkCreateRequiresOpenAPI pins the error a practitioner meets when
+// they add a new network with only the admin credentials configured.
+//
+// Import, read, update and delete all work without Open API credentials, so
+// this failure appears only when someone adds their first network — long after
+// the provider was set up and working. The message has to say which credentials
+// are missing and where they come from, or it reads as the admin password
+// having broken.
+func TestAccNetworkCreateRequiresOpenAPI(t *testing.T) {
+	srv := newMockController(t)
+
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: testProviderConfig(srv.URL) + `
+resource "omada_network" "new" {
+  name           = "LAB"
+  vlan_id        = 77
+  gateway_subnet = "10.10.77.1/24"
+}`,
+				ExpectError: regexp.MustCompile(`Platform Integration -> Open API`),
+			},
+		},
+	})
+}
+
+// TestAccNetworkCreateRequiresInterfaces covers the constraint that only shows
+// up once the VLAN id is valid: the controller refuses a network bound to no
+// LAN interface (-33515). It cannot be deferred to the follow-up update the way
+// the rest of the configuration is, so create has to check it.
+func TestAccNetworkCreateRequiresInterfaces(t *testing.T) {
+	srv := newMockController(t)
+
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: testProviderConfigOpenAPI(srv.URL) + `
+resource "omada_network" "new" {
+  name           = "LAB"
+  vlan_id        = 77
+  gateway_subnet = "10.10.77.1/24"
+  interface_ids  = []
+}`,
+				ExpectError: regexp.MustCompile(`at least one LAN interface`),
 			},
 		},
 	})

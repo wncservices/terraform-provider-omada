@@ -122,13 +122,11 @@ func newMockController(t *testing.T) *httptest.Server {
 		defer mu.Unlock()
 		switch r.Method {
 		case http.MethodPost:
-			var in map[string]any
-			_ = json.NewDecoder(r.Body).Decode(&in)
-			id := fmt.Sprintf("gen-%d", nextID)
-			nextID++
-			in["id"] = id
-			networks[id] = in
-			writeEnvelope(w, 0, "", in)
+			// The real controller refuses network create on the web API — it
+			// only exists on the Open API. Emulating that is the point: a
+			// provider that regressed to POSTing here would pass a permissive
+			// mock and fail on hardware.
+			writeEnvelope(w, -1005, "operation forbidden", nil)
 		default: // GET
 			data := make([]map[string]any, 0, len(networks))
 			for _, n := range networks {
@@ -138,6 +136,63 @@ func newMockController(t *testing.T) *httptest.Server {
 				"totalRows": len(data), "currentPage": 1, "currentSize": 100, "data": data,
 			})
 		}
+	})
+
+	// Network create lives only on the Open API, and only on v2.
+	mux.HandleFunc("/openapi/v2/abc123/sites/site-1/lan-networks", func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "AccessToken=oa-token" {
+			writeEnvelope(w, -44116, "Open API Authorized failed", nil)
+			return
+		}
+		if r.Method != http.MethodPost {
+			writeEnvelope(w, -1600, "Unsupported request path.", nil)
+			return
+		}
+		var in map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&in)
+		// The endpoint requires exactly these four and the provider seeds only
+		// them; anything else means it started sending web-API shape here.
+		for _, k := range []string{"name", "purpose", "vlan", "igmpSnoopEnable", "interfaceIds", "gatewaySubnet"} {
+			if _, ok := in[k]; !ok {
+				writeEnvelope(w, -1001, "Parameter ["+k+"] should not be empty", nil)
+				return
+			}
+		}
+		if len(in) != 6 {
+			writeEnvelope(w, -1001, "unexpected fields in create body", nil)
+			return
+		}
+		// purpose crosses the surface boundary as an int here and a string on the
+		// web API. Rejecting the string is what makes the translation testable.
+		if _, isNum := in["purpose"].(float64); !isNum {
+			writeEnvelope(w, -1001, "Invalid request parameters.", nil)
+			return
+		}
+		// A network must be bound to a LAN interface, like the real controller.
+		if ifaces, _ := in["interfaceIds"].([]any); len(ifaces) == 0 {
+			writeEnvelope(w, -33515, "LAN interfaces could not be none.", nil)
+			return
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		id := fmt.Sprintf("gen-%d", nextID)
+		nextID++
+		// Store the *web API's* representation, not the body just received:
+		// that is what a later GET on /setting/lan/networks returns, and the
+		// two surfaces spell purpose differently. Echoing the Open API body
+		// back would hide exactly the mismatch this route exists to catch.
+		networks[id] = map[string]any{
+			"id": id, "name": in["name"], "purpose": "interface",
+			"vlan": in["vlan"], "gatewaySubnet": in["gatewaySubnet"],
+			"interfaceIds": in["interfaceIds"], "igmpSnoopEnable": in["igmpSnoopEnable"],
+			"vlanType": 0, "application": 0,
+			// A freshly created network really does come back with the IPv6
+			// block present but missing `proto`, which is what makes the
+			// follow-up update fail without the client-side default.
+			"lanNetworkIpv6Config": map[string]any{"enable": 0},
+		}
+		// Create answers without an id, so the provider must find it by name.
+		writeEnvelope(w, 0, "Success.", nil)
 	})
 
 	// Item: PATCH (update) + DELETE.
@@ -155,6 +210,17 @@ func newMockController(t *testing.T) *httptest.Server {
 		default: // PATCH
 			var in map[string]any
 			_ = json.NewDecoder(r.Body).Decode(&in)
+			// The real controller is asymmetric here: its GET returns
+			// lanNetworkIpv6Config as {enable} but its PATCH rejects the object
+			// unless `proto` is also present. Emulating that is what keeps the
+			// client-side default honest -- without this the provider could
+			// stop sending proto and only fail on hardware.
+			if v6, ok := in["lanNetworkIpv6Config"].(map[string]any); ok {
+				if _, has := v6["proto"]; !has {
+					writeEnvelope(w, -1001, "Parameter [proto] should not be null.", nil)
+					return
+				}
+			}
 			cur := networks[id]
 			if cur == nil {
 				cur = map[string]any{}
@@ -1755,17 +1821,17 @@ func writeEnvelope(w http.ResponseWriter, code int, msg string, result any) {
 }
 
 // testProviderConfig renders a provider block pointed at the mock controller.
-// testProviderConfigOpenAPI adds Open API credentials, which resources that
-// write through that surface (omada_switch_port) need.
+// testProviderConfigOpenAPI adds Open API credentials, which the operations
+// that go through that surface need: network create, and omada_switch_port.
 func testProviderConfigOpenAPI(url string) string {
 	return fmt.Sprintf(`
 provider "omada" {
-  url                    = %q
-  username               = "admin"
-  password               = "secret"
-  openapi_client_id      = "oa-client"
-  openapi_client_secret  = "oa-secret"
-  skip_tls_verify        = true
+  url                   = %q
+  username              = "admin"
+  password              = "secret"
+  openapi_client_id     = "oa-client"
+  openapi_client_secret = "oa-secret"
+  skip_tls_verify       = true
 }
 `, url)
 }
