@@ -1201,6 +1201,55 @@ func newMockController(t *testing.T) *httptest.Server {
 		_ = json.NewEncoder(w).Encode(map[string]map[string]any{"gateway": gatewayDoc})
 	})
 
+	// IPTV. The port list belongs to the controller: the provider may flip each
+	// row's `status` but must never invent, drop or rename a row, so the handler
+	// rejects a write whose port set does not match.
+	iptvDoc := map[string]any{
+		"igmpSetting": map[string]any{"igmpProxyEnable": false, "igmpVersion": "2"},
+		"iptvSetting": map[string]any{
+			"iptvEnable": false,
+			"portConfig": []any{
+				map[string]any{"name": "WAN/LAN3", "type": "1", "port": "3_aaa", "status": false, "supportIptv": true, "existIptv": false},
+				map[string]any{"name": "WAN/LAN4", "type": "1", "port": "4_bbb", "status": false, "supportIptv": true, "existIptv": false},
+			},
+		},
+	}
+	mux.HandleFunc("/abc123/api/v2/sites/site-1/setting/iptv", func(w http.ResponseWriter, r *http.Request) {
+		if !requireToken(w, r) {
+			return
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		switch r.Method {
+		case http.MethodGet:
+		case http.MethodPut:
+			var in map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&in)
+			inIPTV, _ := in["iptvSetting"].(map[string]any)
+			curIPTV, _ := iptvDoc["iptvSetting"].(map[string]any)
+			inPorts, _ := inIPTV["portConfig"].([]any)
+			curPorts, _ := curIPTV["portConfig"].([]any)
+			if len(inPorts) != len(curPorts) {
+				writeEnvelope(w, -1001, "the port list may not be added to or removed from", nil)
+				return
+			}
+			for i, p := range inPorts {
+				pm, _ := p.(map[string]any)
+				cm, _ := curPorts[i].(map[string]any)
+				if pm["port"] != cm["port"] || pm["name"] != cm["name"] {
+					writeEnvelope(w, -1001, "the port list may not be rewritten", nil)
+					return
+				}
+			}
+			iptvDoc["igmpSetting"] = in["igmpSetting"]
+			iptvDoc["iptvSetting"] = inIPTV
+		default:
+			writeEnvelope(w, -1600, "Unsupported request path.", nil)
+			return
+		}
+		writeEnvelope(w, 0, "", iptvDoc)
+	})
+
 	// IoT telemetry servers: full CRUD on the web API.
 	iotServers := map[string]map[string]any{}
 	iotNextID := 1

@@ -420,6 +420,7 @@ Every configuration endpoint found on the controller, and where it stands.
 | `/setting/upnp` | ✅ `omada_upnp` |
 | `/setting/vpns` | ✅ `omada_vpn` (**writes inferred**, §5.3) |
 | `/setting` (site settings) | ✅ `omada_site_settings` (~45 of many fields, §5.3) |
+| `/setting/iptv` | ✅ `omada_iptv` |
 | `/logs/notification` | ✅ `omada_notification_settings` |
 | `/site/audit-notification` | ✅ `omada_audit_notification` |
 | `/rfPlanning` | ⚠️ an action, not config (§5.4) |
@@ -430,8 +431,21 @@ Every configuration endpoint found on the controller, and where it stands.
 | per-device configuration | ⚠️ `omada_switch_port`, `omada_gateway` (§5.5); AP config not started |
 
 Not found despite looking, and so presumably unsupported on this hardware or
-named unlike anything tried: DMZ, port triggering, multi-nets NAT, IPTV,
-IP-MAC binding, switch-side QoS, standalone WLAN schedules and MAC filters.
+named unlike anything tried: DMZ, port triggering, multi-nets NAT, switch-side
+QoS, standalone WLAN schedules.
+
+**Three of that list have since been found**, all of them named unlike anything
+guessed — which is the lesson: absence of a match is weak evidence, and a UI
+capture settles in seconds what hours of guessing cannot.
+
+| Endpoint | Was assumed | Actually |
+|---|---|---|
+| `/setting/iptv` | unsupported | ✅ `omada_iptv` |
+| `/setting/firewall/imbs` | unsupported (IP-MAC binding) | exists, **0 rows** — needs a row first |
+| `/setting/firewall/macfilters` | unsupported (MAC filter entries) | exists, **0 rows** — needs a row first |
+
+The two empty ones join DDNS and policy routes in the "create one in the UI and
+the shape falls out" category.
 
 ### 5.1 Blocked on something outside the provider
 
@@ -540,6 +554,9 @@ controller returned.
 | `omada_reboot_schedule`, `omada_poe_schedule` | `/setting/service/rebootSchedules`, `/poeSchedules` | paginated, empty; pair naturally with `omada_time_range` |
 | `omada_url_filter` | `/setting/firewall/urlfilterings` | **needs its query parameter** — answers `-1001` to every one tried |
 | `omada_apn_profile` | `/setting/profiles/apns` | cellular APNs; only relevant with an LTE/5G WAN |
+| `omada_ip_mac_binding` | `/setting/firewall/imbs` | paginated, empty; exists despite §3 having long claimed otherwise |
+| `omada_mac_filter_entry` | `/setting/firewall/macfilters` | paginated, empty; the entries behind `omada_mac_filter`'s master toggle |
+| `omada_dns_proxy` | `/setting/dns-proxy` | **not empty** — `enable` plus a DoH block with default and customised servers. The only row in this table that needs nothing first |
 
 The empty ones share a trap worth naming: with no stored row, the item shape is
 guesswork. Either create one entry in the UI first, or capture the `POST` — see
@@ -577,7 +594,7 @@ Straightforward, but each needs one real row before the item shape is known:
 - `omada_service_types`, `omada_wan_ports` — listings that would make the opaque
   ids in §5.1 and §5.8 usable by name.
 
-### 5.5 Per-device configuration — switch ports shipped, APs and gateway not
+### 5.5 Per-device configuration — switch ports and gateway shipped, APs not
 
 `omada_devices` covers read-only inventory. Per-device *config* now has its
 first resource, `omada_switch_port`, and it is the provider's only
