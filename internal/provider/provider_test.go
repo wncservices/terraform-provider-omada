@@ -1201,6 +1201,64 @@ func newMockController(t *testing.T) *httptest.Server {
 		_ = json.NewEncoder(w).Encode(map[string]map[string]any{"gateway": gatewayDoc})
 	})
 
+	// DNS proxy. defaultServers is the firmware's list — the provider may flip
+	// each entry's `enable` but must never add, drop or renumber one, so the
+	// handler rejects a write whose type set does not match. customizedServers
+	// is the practitioner's and is replaced wholesale.
+	dnsProxyDoc := map[string]any{
+		"enable": true,
+		"dohSetting": map[string]any{
+			"defaultServers": []any{
+				map[string]any{"type": float64(0), "enable": false},
+				map[string]any{"type": float64(1), "enable": false},
+				map[string]any{"type": float64(5), "enable": false},
+			},
+			"customizedServers": []any{
+				map[string]any{"name": "hagezi", "enable": true, "servers": []any{"https://root.hagezi.org/dns-query"}},
+			},
+		},
+		"supportDnsOverride": true,
+		"existDnsOverride":   false,
+		"dohServerLimit":     float64(32),
+		"dotServerLimit":     float64(32),
+	}
+	mux.HandleFunc("/abc123/api/v2/sites/site-1/setting/dns-proxy", func(w http.ResponseWriter, r *http.Request) {
+		if !requireToken(w, r) {
+			return
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		switch r.Method {
+		case http.MethodGet:
+		case http.MethodPut:
+			var in map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&in)
+			inDoH, _ := in["dohSetting"].(map[string]any)
+			curDoH, _ := dnsProxyDoc["dohSetting"].(map[string]any)
+			inDef, _ := inDoH["defaultServers"].([]any)
+			curDef, _ := curDoH["defaultServers"].([]any)
+			if len(inDef) != len(curDef) {
+				writeEnvelope(w, -1001, "the firmware server list may not be added to or removed from", nil)
+				return
+			}
+			for i, d := range inDef {
+				dm, _ := d.(map[string]any)
+				cm, _ := curDef[i].(map[string]any)
+				if dm["type"] != cm["type"] {
+					writeEnvelope(w, -1001, "the firmware server list may not be renumbered", nil)
+					return
+				}
+			}
+			dnsProxyDoc["enable"] = in["enable"]
+			curDoH["defaultServers"] = inDef
+			curDoH["customizedServers"] = inDoH["customizedServers"]
+		default:
+			writeEnvelope(w, -1600, "Unsupported request path.", nil)
+			return
+		}
+		writeEnvelope(w, 0, "", dnsProxyDoc)
+	})
+
 	// IPTV. The port list belongs to the controller: the provider may flip each
 	// row's `status` but must never invent, drop or rename a row, so the handler
 	// rejects a write whose port set does not match.
