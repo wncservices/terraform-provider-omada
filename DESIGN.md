@@ -426,7 +426,7 @@ Every configuration endpoint found on the controller, and where it stands.
 | `/setting/vpns/greTunnel` | ✅ `omada_gre_tunnel` |
 | `/setting/iot/radio` | ✅ `omada_iot_radio` — **Open API only** |
 | `/setting/iot/devices/config` | ❌ iBeacon profiles, list CRUD not started |
-| `/setting/iot/servers` | ❌ empty on this site — no row to learn the shape from |
+| `/setting/iot/servers` | ✅ `omada_iot_server` |
 | per-device configuration | ⚠️ `omada_switch_port` — switch ports done (§5.5); AP and gateway config not started |
 
 Not found despite looking, and so presumably unsupported on this hardware or
@@ -614,6 +614,25 @@ Supporting reads already available:
 `GET /api/v2/sites/{site}/setting/lan/profileSummary` (port profiles as
 `{id, name, type}`) and `.../setting/lan/networks-split` (networks with their
 `interfaceIds`).
+
+### 5.5a A create that lies about failing
+
+`POST /setting/iot/servers` stores the server and **then answers `-1 "General
+error"`**. Confirmed repeatedly on live hardware: the row is in the list every
+time.
+
+Trusting the error code abandons an object that exists. Worse, it is silently
+self-worsening — the orphan is invisible to Terraform, and the next apply
+collides with it (`-33249 "This transport stream name already exists"`), so the
+resource can never converge.
+
+`CreateIoTServer` therefore treats **the list as authoritative, not the response
+code**: on any create failure it re-reads and looks for what it asked for,
+reporting the original error only if the object genuinely is not there. The mock
+reproduces the lie, so a version that trusted the code fails in CI.
+
+Worth checking for on any create endpoint before assuming an error means
+nothing happened.
 
 ### 5.6 Firewall ACL inline ports — likely unbuildable on this hardware
 

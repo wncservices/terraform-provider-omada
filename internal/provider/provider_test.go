@@ -1150,6 +1150,89 @@ func newMockController(t *testing.T) *httptest.Server {
 			"unmodelledKey": "keep-me",
 		},
 	}
+	// IoT telemetry servers: full CRUD on the web API.
+	iotServers := map[string]map[string]any{}
+	iotNextID := 1
+	iotBase := "/abc123/api/v2/sites/site-1/setting/iot/servers"
+
+	mux.HandleFunc(iotBase, func(w http.ResponseWriter, r *http.Request) {
+		if !requireToken(w, r) {
+			return
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		switch r.Method {
+		case http.MethodPost:
+			var in map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&in)
+			if classes, _ := in["deviceClasses"].([]any); len(classes) == 0 {
+				writeEnvelope(w, -1001, "The parameter Device Class is required.", nil)
+				return
+			}
+			for _, srv := range iotServers {
+				if srv["name"] == in["name"] {
+					writeEnvelope(w, -33249, "This transport stream name already exists.", nil)
+					return
+				}
+			}
+			id := fmt.Sprintf("iot-%d", iotNextID)
+			iotNextID++
+			in["id"] = id
+			// `filters` is controller-owned and never modelled by the provider;
+			// seeding it here proves the read-modify-write preserves it.
+			in["filters"] = map[string]any{"seeded": true}
+			in["resource"] = float64(0)
+			iotServers[id] = in
+			// The real controller stores the server and *then* answers -1
+			// "General error". Reproduced here so the provider's list-is-
+			// authoritative recovery is exercised in CI: a version that
+			// trusted the error code would orphan this row and fail.
+			writeEnvelope(w, -1, "General error.", nil)
+		default: // GET
+			data := make([]map[string]any, 0, len(iotServers))
+			for _, srv := range iotServers {
+				data = append(data, srv)
+			}
+			writeEnvelope(w, 0, "", map[string]any{
+				"totalRows": len(data), "currentPage": 1, "currentSize": 100, "data": data,
+			})
+		}
+	})
+
+	mux.HandleFunc(iotBase+"/", func(w http.ResponseWriter, r *http.Request) {
+		if !requireToken(w, r) {
+			return
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		id := pathpkg.Base(r.URL.Path)
+		cur, ok := iotServers[id]
+		if !ok {
+			writeEnvelope(w, -1001, "no such iot server", nil)
+			return
+		}
+		switch r.Method {
+		case http.MethodPut:
+			var in map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&in)
+			// The controller owns `resource`; sending it back is a hard error
+			// here so a regression fails in CI.
+			if _, sent := in["resource"]; sent {
+				writeEnvelope(w, -1001, "read-only key resource must not be sent", nil)
+				return
+			}
+			for k, v := range in {
+				cur[k] = v
+			}
+			writeEnvelope(w, 0, "", cur)
+		case http.MethodDelete:
+			delete(iotServers, id)
+			writeEnvelope(w, 0, "", nil)
+		default: // PATCH and friends
+			writeEnvelope(w, -1600, "Unsupported request path.", nil)
+		}
+	})
+
 	// The IoT radio is served *only* by the Open API — the web API answers
 	// -1600 for the same path — so it gets its own handler rather than joining
 	// the loop below. The mock enforces both halves of that: no web-API route
@@ -1819,6 +1902,12 @@ func newMockController(t *testing.T) *httptest.Server {
 		default:
 			writeEnvelope(w, -1600, "Unsupported request path.", nil)
 		}
+	})
+
+	mux.HandleFunc("/debug/iotServers", func(w http.ResponseWriter, _ *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		_ = json.NewEncoder(w).Encode(iotServers)
 	})
 
 	mux.HandleFunc("/debug/singletons", func(w http.ResponseWriter, _ *http.Request) {
