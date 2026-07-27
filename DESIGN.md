@@ -420,6 +420,7 @@ Every configuration endpoint found on the controller, and where it stands.
 | `/setting/upnp` | ✅ `omada_upnp` |
 | `/setting/vpns` | ✅ `omada_vpn` (**writes inferred**, §5.3) |
 | `/setting` (site settings) | ✅ `omada_site_settings` (~45 of many fields, §5.3) |
+| `/setting/iptv` | ✅ `omada_iptv` |
 | `/logs/notification` | ✅ `omada_notification_settings` |
 | `/site/audit-notification` | ✅ `omada_audit_notification` |
 | `/rfPlanning` | ⚠️ an action, not config (§5.4) |
@@ -430,8 +431,21 @@ Every configuration endpoint found on the controller, and where it stands.
 | per-device configuration | ⚠️ `omada_switch_port` — switch ports done (§5.5); AP and gateway config not started |
 
 Not found despite looking, and so presumably unsupported on this hardware or
-named unlike anything tried: DMZ, port triggering, multi-nets NAT, IPTV,
-IP-MAC binding, switch-side QoS, standalone WLAN schedules and MAC filters.
+named unlike anything tried: DMZ, port triggering, multi-nets NAT, switch-side
+QoS, standalone WLAN schedules.
+
+**Three of that list have since been found**, all of them named unlike anything
+guessed — which is the lesson: absence of a match is weak evidence, and a UI
+capture settles in seconds what hours of guessing cannot.
+
+| Endpoint | Was assumed | Actually |
+|---|---|---|
+| `/setting/iptv` | unsupported | ✅ `omada_iptv` |
+| `/setting/firewall/imbs` | unsupported (IP-MAC binding) | exists, **0 rows** — needs a row first |
+| `/setting/firewall/macfilters` | unsupported (MAC filter entries) | exists, **0 rows** — needs a row first |
+
+The two empty ones join DDNS and policy routes in the "create one in the UI and
+the shape falls out" category.
 
 ### 5.1 Blocked on something outside the provider
 
