@@ -112,15 +112,26 @@ func (c *Client) CreateNetwork(ctx context.Context, siteID string, fields map[st
 		return nil, fmt.Errorf("creating network: name is required")
 	}
 
+	purpose, err := openAPIPurpose(fields["purpose"])
+	if err != nil {
+		return nil, fmt.Errorf("creating network %q: %w", name, err)
+	}
+
 	seed := map[string]any{
 		"name":            name,
-		"purpose":         valueOr(fields, "purpose", 1),
+		"purpose":         purpose,
 		"vlan":            fields["vlan"],
 		"igmpSnoopEnable": valueOr(fields, "igmpSnoopEnable", false),
 		"interfaceIds":    fields["interfaceIds"],
+		"gatewaySubnet":   fields["gatewaySubnet"],
 	}
 	if seed["vlan"] == nil {
 		return nil, fmt.Errorf("creating network %q: vlan is required", name)
+	}
+	// Required whenever purpose is "interface" (-35930), which is every network
+	// this provider can currently create.
+	if sub, _ := seed["gatewaySubnet"].(string); sub == "" {
+		return nil, fmt.Errorf("creating network %q: gateway_subnet is required", name)
 	}
 	// The controller rejects a network bound to nothing (-33515 "LAN interfaces
 	// could not be none"), so this cannot be deferred to the update call the way
@@ -159,6 +170,35 @@ func (c *Client) CreateNetwork(ctx context.Context, siteID string, fields map[st
 			"(it exists on the controller and will be reconciled on the next apply): %w", name, err)
 	}
 	return updated, nil
+}
+
+// openAPIPurpose translates a network purpose from the web API's spelling to the
+// Open API's.
+//
+// The two surfaces disagree: the web API calls it "interface", the Open API
+// calls it 1. That mismatch is the whole reason create seeds a minimal network
+// and lets the web-API update apply the rest — every field carried across is a
+// translation that has to be right, and this one silently produced
+// "-1001 Invalid request parameters" until it was found.
+//
+// Only "interface" is mapped, because it is the only value observed on live
+// hardware. An unknown purpose is an error rather than a guess: guessing here
+// would create a network of the wrong kind.
+func openAPIPurpose(v any) (int, error) {
+	switch p := v.(type) {
+	case nil:
+		return 1, nil
+	case int:
+		return p, nil
+	case string:
+		if p == "" || p == "interface" {
+			return 1, nil
+		}
+		return 0, fmt.Errorf("purpose %q has no known Open API equivalent, so the network cannot "+
+			"be created — only %q is mapped. Create it in the controller UI and import it instead", p, "interface")
+	default:
+		return 0, fmt.Errorf("unexpected purpose type %T", v)
+	}
 }
 
 // valueOr returns fields[key], or def when it is absent or nil.
@@ -206,21 +246,44 @@ func (c *Client) UpdateNetwork(ctx context.Context, siteID, id string, fields ma
 		return nil, err
 	}
 	for k, v := range fields {
-		if k == "dhcpSettings" {
-			// merge into the existing dhcpSettings so ipRangePool etc. survive
-			base, _ := cur["dhcpSettings"].(map[string]any)
-			merged := map[string]any{}
-			for bk, bv := range base {
-				merged[bk] = bv
+		// Nested objects are merged, never replaced. The controller owns keys
+		// inside them that this provider does not model — `ipRangePool` under
+		// dhcpSettings, `proto` under lanNetworkIpv6Config — and sending a
+		// replacement object drops them. Dropping `proto` is rejected outright
+		// (`-1001 Parameter [proto] should not be null`); dropping the DHCP
+		// pool would silently discard the address range.
+		//
+		// This was originally special-cased for dhcpSettings alone, which meant
+		// every other nested object still clobbered. Merging by shape rather
+		// than by name fixes the ones not yet discovered too.
+		if incoming, ok := v.(map[string]any); ok {
+			if base, ok := cur[k].(map[string]any); ok {
+				merged := make(map[string]any, len(base)+len(incoming))
+				for bk, bv := range base {
+					merged[bk] = bv
+				}
+				for nk, nv := range incoming {
+					merged[nk] = nv
+				}
+				cur[k] = merged
+				continue
 			}
-			for nk, nv := range v.(map[string]any) {
-				merged[nk] = nv
-			}
-			cur["dhcpSettings"] = merged
-			continue
 		}
 		cur[k] = v
 	}
+	// The IPv6 block is asymmetric: the web API's GET returns it as `{enable}`
+	// only, but its PATCH rejects the object unless `proto` is present
+	// (`-1001 Parameter [proto] should not be null`). A read-modify-write cannot
+	// restore a key the read never returned, so the default is supplied here.
+	// Zero is not a guess — the Open API, which does return the field, reports
+	// `proto: 0` for every network on the site — and dropping the block instead
+	// is not an option: without it the controller answers `-1 General error`.
+	if v6, ok := cur["lanNetworkIpv6Config"].(map[string]any); ok {
+		if _, has := v6["proto"]; !has {
+			v6["proto"] = 0
+		}
+	}
+
 	if err := c.Do(ctx, "PATCH", networksPath(siteID)+"/"+id, cur, nil); err != nil {
 		return nil, fmt.Errorf("updating network %q: %w", id, err)
 	}

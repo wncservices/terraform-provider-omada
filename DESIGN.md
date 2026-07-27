@@ -458,6 +458,21 @@ These cannot be finished by writing code alone.
    `"interface"` — the sole value observed live — erroring rather than guessing
    on anything else, since a guess here creates a network of the wrong kind.
 
+   **A fifth round came from the update half, not the create.** With the
+   network created, the follow-up update failed `-1001 Parameter [proto] should
+   not be null`. The web API's GET returns `lanNetworkIpv6Config` as `{enable}`
+   only, but its PATCH rejects the object unless `proto` is present — a
+   read-modify-write cannot restore a key the read never returned. Dropping the
+   block instead answers `-1 General error`, so it has to be sent, with a
+   default. Zero is not a guess: the Open API, which does return the field,
+   reports `proto: 0` for every network on the site.
+
+   That also exposed a real bug in `UpdateNetwork` affecting *existing*
+   networks, not just new ones: it merged `dhcpSettings` but replaced every
+   other nested object wholesale, so any update touching one would drop the
+   controller-owned keys inside it. It now merges by shape rather than by name,
+   which fixes the nested objects nobody has hit yet as well.
+
    `CreateNetwork` sends those five fields plus `gatewaySubnet`, then applies
    the rest of the configuration through the ordinary web-API update. That split
    is the whole reason the `purpose` mismatch was a one-line fix rather than a
@@ -466,6 +481,9 @@ These cannot be finished by writing code alone.
    create is two calls, so an interruption between them leaves a network that
    exists but is not fully configured. The error says exactly that, and the next
    apply reconciles it.
+
+   Verified end to end on the live controller: apply, a clean second plan, then
+   destroy, with the site's network list back to its original five.
 
 2. **One-to-one NAT** — the field set is complete
    (`name`, `status`, `externalIp`, `internalIp`, `dmz`, `interfaceIds`), but
