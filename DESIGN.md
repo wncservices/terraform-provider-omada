@@ -421,6 +421,7 @@ Every configuration endpoint found on the controller, and where it stands.
 | `/setting/vpns` | ✅ `omada_vpn` (**writes inferred**, §5.3) |
 | `/setting` (site settings) | ✅ `omada_site_settings` (~45 of many fields, §5.3) |
 | `/setting/iptv` | ✅ `omada_iptv` |
+| `/setting/dns-proxy` | ✅ `omada_dns_proxy` |
 | `/logs/notification` | ✅ `omada_notification_settings` |
 | `/site/audit-notification` | ✅ `omada_audit_notification` |
 | `/rfPlanning` | ⚠️ an action, not config (§5.4) |
@@ -556,11 +557,19 @@ controller returned.
 | `omada_apn_profile` | `/setting/profiles/apns` | cellular APNs; only relevant with an LTE/5G WAN |
 | `omada_ip_mac_binding` | `/setting/firewall/imbs` | paginated, empty; exists despite §3 having long claimed otherwise |
 | `omada_mac_filter_entry` | `/setting/firewall/macfilters` | paginated, empty; the entries behind `omada_mac_filter`'s master toggle |
-| `omada_dns_proxy` | `/setting/dns-proxy` | **not empty** — `enable` plus a DoH block with default and customised servers. The only row in this table that needs nothing first |
 
 The empty ones share a trap worth naming: with no stored row, the item shape is
 guesswork. Either create one entry in the UI first, or capture the `POST` — see
 §4 on why probing alone stalls on endpoints whose validation names no fields.
+
+**Two resources now share one pattern, and a third will want it.** `omada_iptv`
+and `omada_dns_proxy` both wrap a document containing a **firmware-owned list**
+(gateway ports; built-in DoH resolvers) alongside practitioner-owned data. In
+both, the resource models *the set of enabled entries* rather than the list, the
+read-modify-write preserves every row, an unknown id is an error rather than a
+silent no-op — the controller accepts such writes and drops them — and the full
+list is surfaced read-only so the ids are discoverable without a capture. Copy
+that shape rather than inventing a third.
 
 ### 5.3 Breadth inside resources that already exist
 
