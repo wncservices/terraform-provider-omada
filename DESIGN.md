@@ -554,6 +554,9 @@ controller returned.
 | `omada_reboot_schedule`, `omada_poe_schedule` | `/setting/service/rebootSchedules`, `/poeSchedules` | paginated, empty; pair naturally with `omada_time_range` |
 | `omada_url_filter` | `/setting/firewall/urlfilterings` | **needs its query parameter** — answers `-1001` to every one tried |
 | `omada_apn_profile` | `/setting/profiles/apns` | cellular APNs; only relevant with an LTE/5G WAN |
+| `omada_ip_mac_binding` | `/setting/firewall/imbs` | paginated, empty; exists despite §3 having long claimed otherwise |
+| `omada_mac_filter_entry` | `/setting/firewall/macfilters` | paginated, empty; the entries behind `omada_mac_filter`'s master toggle |
+| `omada_dns_proxy` | `/setting/dns-proxy` | **not empty** — `enable` plus a DoH block with default and customised servers. The only row in this table that needs nothing first |
 
 The empty ones share a trap worth naming: with no stored row, the item shape is
 guesswork. Either create one entry in the UI first, or capture the `POST` — see
@@ -591,7 +594,7 @@ Straightforward, but each needs one real row before the item shape is known:
 - `omada_service_types`, `omada_wan_ports` — listings that would make the opaque
   ids in §5.1 and §5.8 usable by name.
 
-### 5.5 Per-device configuration — switch ports shipped, APs and gateway not
+### 5.5 Per-device configuration — switch ports and gateway shipped, APs not
 
 `omada_devices` covers read-only inventory. Per-device *config* now has its
 first resource, `omada_switch_port`, and it is the provider's only
