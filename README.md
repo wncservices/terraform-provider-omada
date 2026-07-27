@@ -9,7 +9,7 @@ shapes are derived from the UI. This is deliberate: it's the only surface with f
 config coverage, including gateway/router settings that other providers omit.
 
 > **Status: released.** `v0.6.1` is the current release on the Terraform Registry —
-> **40 resources** (table below) + 6 data sources, each with acceptance tests in
+> **41 resources** (table below) + 6 data sources, each with acceptance tests in
 > CI. Verified against a live Omada v6.2 controller.
 
 **Contributing?** See [`DESIGN.md`](DESIGN.md) for the architecture, the coverage
@@ -59,6 +59,7 @@ without reading the whole repo first.
 | `omada_switch_port` | per-port switch config, verified live ✅; **the one cross-surface resource** — reads from the web API, writes through the Open API, so it needs `openapi_client_id`/`openapi_client_secret`. Ports are physical: adopt-only, and destroy just stops managing one |
 | `omada_gre_tunnel` | singleton, read/update verified live ✅; GRE tunnel toggle + related SSIDs |
 | `omada_iot_server` | BLE/IoT telemetry destination, full CRUD verified live ✅; `device_classes` may not be empty, and **create reports `-1` while succeeding** — the provider treats the list as authoritative |
+| `omada_iot_beacon` | iBeacon profile; read/import/update verified live ✅ · **create + delete unverified** — needs an AP with a BLE radio, which the development site has none of |
 | `omada_iot_radio` | singleton, read/update verified live ✅; **Open API only** — the web API has no such path, so this needs `openapi_client_id`/`openapi_client_secret` to *read* as well as write. `passcode` is write-only |
 | `omada_site_settings` | singleton, read/update verified live ✅; ~45 fields across LED, mesh, roaming, band steering, airtime fairness, LLDP, auto-upgrade, alerts, remote logging, speed test, RF beacon; `deviceAccount` never touched |
 | data sources `omada_sites`, `omada_networks`, `omada_port_forwards`, `omada_firewall_acls`, `omada_devices` | ✅ (discovery/inventory — list objects + their IDs for import) |
