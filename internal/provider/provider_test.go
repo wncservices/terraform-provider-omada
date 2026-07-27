@@ -1233,6 +1233,108 @@ func newMockController(t *testing.T) *httptest.Server {
 		}
 	})
 
+	// iBeacon profiles. The mock carries an IoT-capable device inventory and
+	// enforces it, because that check is exactly what could not be exercised on
+	// the development site: its EAP610s have no BLE radio, so the controller's
+	// own inventory is empty and every create is refused. Emulating it here is
+	// the only place the create path runs at all.
+	iotCapableAPs := map[string]bool{"60-83-E7-4B-1B-40": true, "DC-62-79-97-7B-82": true}
+	iotBeacons := map[string]map[string]any{
+		"beacon-default": {
+			"id": "beacon-default", "name": "Default", "enable": false,
+			"macList": []any{}, "uuid": "00000000000000000000000000000000",
+			"major": "0000", "minor": "0000",
+			"transmitPower": float64(0), "measurePower": float64(-65), "advInterval": float64(500),
+			"boundDeviceNum": float64(0), "buildIn": float64(0),
+			"unmodelledKey": "keep-me",
+		},
+	}
+	beaconNextID := 1
+	beaconBase := "/abc123/api/v2/sites/site-1/setting/iot/devices/config"
+
+	mux.HandleFunc(beaconBase, func(w http.ResponseWriter, r *http.Request) {
+		if !requireToken(w, r) {
+			return
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		switch r.Method {
+		case http.MethodPost:
+			var in map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&in)
+			macs, _ := in["macList"].([]any)
+			if len(macs) == 0 {
+				writeEnvelope(w, -33283, "Device List cannot be empty.", nil)
+				return
+			}
+			for _, m := range macs {
+				if s, _ := m.(string); !iotCapableAPs[s] {
+					writeEnvelope(w, -33284, "The devices in the device list are not in the current site.", nil)
+					return
+				}
+			}
+			id := fmt.Sprintf("beacon-%d", beaconNextID)
+			beaconNextID++
+			in["id"] = id
+			in["boundDeviceNum"] = float64(len(macs))
+			in["buildIn"] = float64(0)
+			iotBeacons[id] = in
+			writeEnvelope(w, 0, "", in)
+		default: // GET
+			data := make([]map[string]any, 0, len(iotBeacons))
+			for _, b := range iotBeacons {
+				data = append(data, b)
+			}
+			writeEnvelope(w, 0, "", map[string]any{
+				"totalRows": len(data), "currentPage": 1, "currentSize": 100, "data": data,
+			})
+		}
+	})
+
+	mux.HandleFunc(beaconBase+"/", func(w http.ResponseWriter, r *http.Request) {
+		if !requireToken(w, r) {
+			return
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		id := pathpkg.Base(r.URL.Path)
+		cur, ok := iotBeacons[id]
+		if !ok {
+			writeEnvelope(w, -1001, "no such beacon profile", nil)
+			return
+		}
+		switch r.Method {
+		case http.MethodPut:
+			var in map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&in)
+			// Controller-owned; the provider must not send them back.
+			for _, k := range []string{"boundDeviceNum", "buildIn", "resource"} {
+				if _, sent := in[k]; sent {
+					writeEnvelope(w, -1001, "read-only key "+k+" must not be sent", nil)
+					return
+				}
+			}
+			for k, v := range in {
+				cur[k] = v
+			}
+			if macs, _ := cur["macList"].([]any); macs != nil {
+				cur["boundDeviceNum"] = float64(len(macs))
+			}
+			writeEnvelope(w, 0, "", cur)
+		case http.MethodDelete:
+			delete(iotBeacons, id)
+			writeEnvelope(w, 0, "", nil)
+		default:
+			writeEnvelope(w, -1600, "Unsupported request path.", nil)
+		}
+	})
+
+	mux.HandleFunc("/debug/iotBeacons", func(w http.ResponseWriter, _ *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		_ = json.NewEncoder(w).Encode(iotBeacons)
+	})
+
 	// The IoT radio is served *only* by the Open API — the web API answers
 	// -1600 for the same path — so it gets its own handler rather than joining
 	// the loop below. The mock enforces both halves of that: no web-API route

@@ -425,7 +425,7 @@ Every configuration endpoint found on the controller, and where it stands.
 | `/rfPlanning` | ⚠️ an action, not config (§5.4) |
 | `/setting/vpns/greTunnel` | ✅ `omada_gre_tunnel` |
 | `/setting/iot/radio` | ✅ `omada_iot_radio` — **Open API only** |
-| `/setting/iot/devices/config` | ❌ iBeacon profiles, list CRUD not started |
+| `/setting/iot/devices/config` | ⚠️ `omada_iot_beacon` — create/delete unverified (§5.1) |
 | `/setting/iot/servers` | ✅ `omada_iot_server` |
 | per-device configuration | ⚠️ `omada_switch_port` — switch ports done (§5.5); AP and gateway config not started |
 
@@ -499,6 +499,21 @@ These cannot be finished by writing code alone.
 
    Verified end to end on the live controller: apply, a clean second plan, then
    destroy, with the site's network list back to its original five.
+
+2. **iBeacon create and delete** — the resource ships, but only read, import
+   and update are confirmed. A profile must name at least one AP in `macList`,
+   and the controller validates that against its own IoT-capable inventory at
+   `/setting/iot/devices`, which is **empty on this site**: the EAP610s have no
+   BLE radio, and `/setting/capacity` reports no IoT flag at all. Every create
+   is refused with `-33284 "The devices in the device list are not in the
+   current site"`.
+
+   Shipping it anyway is a departure from the rule that governs one-to-one NAT
+   below, and the difference is blast radius: a beacon profile that fails to
+   create is an error message, while a NAT write path that misbehaves takes the
+   internet down. The mock emulates the device inventory so the create and
+   delete paths are at least exercised somewhere. Needs an EAP650/670-class AP
+   to confirm.
 
 2. **One-to-one NAT** — the field set is complete
    (`name`, `status`, `externalIp`, `internalIp`, `dmz`, `interfaceIds`), but
