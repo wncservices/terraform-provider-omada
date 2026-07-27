@@ -40,6 +40,9 @@ resource "omada_switch_port" "nas" {
 					resource.TestCheckResourceAttr("omada_switch_port.nas", "profile_id", "prof-all"),
 					resource.TestCheckResourceAttr("omada_switch_port.nas", "profile_name", "All"),
 					resource.TestCheckResourceAttr("omada_switch_port.nas", "duplex", "0"),
+					// The tag's label is surfaced, so a plan shows "AP" rather
+					// than only an opaque id.
+					resource.TestCheckResourceAttr("omada_switch_port.nas", "tag_name", "AP"),
 				),
 			},
 			{

@@ -76,13 +76,16 @@ resource "omada_switch_port" "uplink" {
 - `profile_override_enable` (Boolean) Whether per-port settings override the profile.
 - `profile_vlan_override_enable` (Boolean) Whether the per-port VLAN settings below override the profile's.
 - `site` (String) Site name. Defaults to the primary site. Changing forces replacement.
-- `tag_ids` (List of String) IDs of the networks carried tagged on this port.
+- `tag_ids` (List of String) IDs of the **port tags** applied to this port. Despite the name these are not network ids — see `tag_name` for what the controller calls them.
+
+~> A tag deleted from the site is not cleared from the ports that reference it. The id simply stays, and the controller carries on reporting its old name, so a value here can outlive the tag itself.
 
 ### Read-Only
 
 - `id` (String) `<switch mac>/<port>`.
 - `profile_name` (String) Name of the applied profile. Read-only, for readability in plans and state.
 - `site_id` (String)
+- `tag_name` (String) The controller's label for the applied port tag, e.g. `AP`. Read-only, and present so `tag_ids` is legible rather than opaque.
 
 ## Import
 
