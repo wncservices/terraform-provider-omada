@@ -75,9 +75,18 @@ func (r *gatewayResource) Schema(_ context.Context, _ resource.SchemaRequest, re
 				PlanModifiers:       []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
 			},
 			"site": schema.StringAttribute{
-				Optional:            true,
+				Optional: true,
+				// Computed as well as Optional, and recorded as the *canonical*
+				// resolved name. Optional-only looks simpler but sets a trap:
+				// importing without a "<site>/" prefix leaves this null, so a
+				// configuration that names the site reads as a change — and
+				// since the attribute forces replacement, the plan proposes
+				// replacing hardware it had just adopted.
+				Computed:            true,
 				MarkdownDescription: "Site name. Defaults to the primary site. Changing forces replacement.",
-				PlanModifiers:       []planmodifier.String{stringplanmodifier.RequiresReplace()},
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.UseStateForUnknown(), stringplanmodifier.RequiresReplace(),
+				},
 			},
 			"site_id": schema.StringAttribute{
 				Computed:      true,
@@ -170,16 +179,13 @@ func (r *gatewayResource) siteName(m gatewayResourceModel) string {
 	return r.data.defaultSite
 }
 
-func (r *gatewayResource) resolveSite(ctx context.Context, m gatewayResourceModel, diags *diagSink) string {
-	if s := m.SiteID.ValueString(); s != "" {
-		return s
-	}
-	siteID, err := r.data.client.ResolveSiteID(ctx, r.siteName(m))
+func (r *gatewayResource) resolveSite(ctx context.Context, m gatewayResourceModel, diags *diagSink) (string, string) {
+	site, err := r.data.client.ResolveSite(ctx, r.siteName(m))
 	if err != nil {
 		diags.AddError("Unable to resolve site", err.Error())
-		return ""
+		return "", ""
 	}
-	return siteID
+	return site.ID, site.Name
 }
 
 // changed builds the PATCH body from the attributes the practitioner actually
@@ -282,7 +288,7 @@ func (r *gatewayResource) refresh(g *omada.Gateway, m *gatewayResourceModel) {
 
 // apply is the shared body of Create and Update.
 func (r *gatewayResource) apply(ctx context.Context, plan *gatewayResourceModel, diags *diagSink) {
-	siteID := r.resolveSite(ctx, *plan, diags)
+	siteID, siteName := r.resolveSite(ctx, *plan, diags)
 	if siteID == "" {
 		return
 	}
@@ -305,6 +311,7 @@ func (r *gatewayResource) apply(ctx context.Context, plan *gatewayResourceModel,
 	}
 	r.refresh(cur, plan)
 	plan.SiteID = types.StringValue(siteID)
+	plan.Site = types.StringValue(siteName)
 }
 
 // Create adopts the existing gateway rather than making one.
@@ -327,7 +334,7 @@ func (r *gatewayResource) Read(ctx context.Context, req resource.ReadRequest, re
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	siteID := r.resolveSite(ctx, state, &diagSink{&resp.Diagnostics})
+	siteID, siteName := r.resolveSite(ctx, state, &diagSink{&resp.Diagnostics})
 	if resp.Diagnostics.HasError() {
 		return
 	}
@@ -338,6 +345,7 @@ func (r *gatewayResource) Read(ctx context.Context, req resource.ReadRequest, re
 	}
 	r.refresh(cur, &state)
 	state.SiteID = types.StringValue(siteID)
+	state.Site = types.StringValue(siteName)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }
 

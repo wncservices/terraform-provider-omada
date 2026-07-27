@@ -76,9 +76,18 @@ func (r *switchPortResource) Schema(_ context.Context, _ resource.SchemaRequest,
 				PlanModifiers:       []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
 			},
 			"site": schema.StringAttribute{
-				Optional:            true,
+				Optional: true,
+				// Computed as well as Optional, and recorded as the *canonical*
+				// resolved name. Optional-only looks simpler but sets a trap:
+				// importing without a "<site>/" prefix leaves this null, so a
+				// configuration that names the site reads as a change — and
+				// since the attribute forces replacement, the plan proposes
+				// replacing hardware it had just adopted.
+				Computed:            true,
 				MarkdownDescription: "Site name. Defaults to the primary site. Changing forces replacement.",
-				PlanModifiers:       []planmodifier.String{stringplanmodifier.RequiresReplace()},
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.UseStateForUnknown(), stringplanmodifier.RequiresReplace(),
+				},
 			},
 			"site_id": schema.StringAttribute{
 				Computed:      true,
@@ -171,16 +180,13 @@ func (r *switchPortResource) siteName(m switchPortResourceModel) string {
 	return r.data.defaultSite
 }
 
-func (r *switchPortResource) resolveSite(ctx context.Context, m switchPortResourceModel, diags *diagSink) string {
-	if s := m.SiteID.ValueString(); s != "" {
-		return s
-	}
-	siteID, err := r.data.client.ResolveSiteID(ctx, r.siteName(m))
+func (r *switchPortResource) resolveSite(ctx context.Context, m switchPortResourceModel, diags *diagSink) (string, string) {
+	site, err := r.data.client.ResolveSite(ctx, r.siteName(m))
 	if err != nil {
 		diags.AddError("Unable to resolve site", err.Error())
-		return ""
+		return "", ""
 	}
-	return siteID
+	return site.ID, site.Name
 }
 
 // merge overlays the configured attributes of the plan onto the port as it
@@ -244,7 +250,7 @@ func (r *switchPortResource) refresh(ctx context.Context, p *omada.SwitchPort, m
 // apply is the shared body of Create and Update: read the port, overlay the
 // plan, write, then read back what the controller actually stored.
 func (r *switchPortResource) apply(ctx context.Context, plan *switchPortResourceModel, diags *diagSink) {
-	siteID := r.resolveSite(ctx, *plan, diags)
+	siteID, siteName := r.resolveSite(ctx, *plan, diags)
 	if siteID == "" {
 		return
 	}
@@ -270,6 +276,7 @@ func (r *switchPortResource) apply(ctx context.Context, plan *switchPortResource
 	}
 	r.refresh(ctx, after, plan)
 	plan.SiteID = types.StringValue(siteID)
+	plan.Site = types.StringValue(siteName)
 }
 
 // Create adopts an existing port rather than making one.
@@ -293,7 +300,7 @@ func (r *switchPortResource) Read(ctx context.Context, req resource.ReadRequest,
 		return
 	}
 	sink := &diagSink{&resp.Diagnostics}
-	siteID := r.resolveSite(ctx, state, sink)
+	siteID, siteName := r.resolveSite(ctx, state, sink)
 	if resp.Diagnostics.HasError() {
 		return
 	}
@@ -306,6 +313,7 @@ func (r *switchPortResource) Read(ctx context.Context, req resource.ReadRequest,
 	}
 	r.refresh(ctx, cur, &state)
 	state.SiteID = types.StringValue(siteID)
+	state.Site = types.StringValue(siteName)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }
 

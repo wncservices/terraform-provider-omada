@@ -73,9 +73,18 @@ func (r *iotBeaconResource) Schema(_ context.Context, _ resource.SchemaRequest, 
 				PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
 			},
 			"site": schema.StringAttribute{
-				Optional:            true,
+				Optional: true,
+				// Computed as well as Optional, and recorded as the *canonical*
+				// resolved name. Optional-only looks simpler but sets a trap:
+				// importing without a "<site>/" prefix leaves this null, so a
+				// configuration that names the site reads as a change — and
+				// since the attribute forces replacement, the plan proposes
+				// replacing hardware it had just adopted.
+				Computed:            true,
 				MarkdownDescription: "Site name. Defaults to the primary site. Changing forces replacement.",
-				PlanModifiers:       []planmodifier.String{stringplanmodifier.RequiresReplace()},
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.UseStateForUnknown(), stringplanmodifier.RequiresReplace(),
+				},
 			},
 			"site_id": schema.StringAttribute{
 				Computed:      true,
@@ -161,16 +170,13 @@ func (r *iotBeaconResource) siteName(m iotBeaconResourceModel) string {
 	return r.data.defaultSite
 }
 
-func (r *iotBeaconResource) resolveSite(ctx context.Context, m iotBeaconResourceModel, diags *diagSink) string {
-	if s := m.SiteID.ValueString(); s != "" {
-		return s
-	}
-	siteID, err := r.data.client.ResolveSiteID(ctx, r.siteName(m))
+func (r *iotBeaconResource) resolveSite(ctx context.Context, m iotBeaconResourceModel, diags *diagSink) (string, string) {
+	site, err := r.data.client.ResolveSite(ctx, r.siteName(m))
 	if err != nil {
 		diags.AddError("Unable to resolve site", err.Error())
-		return ""
+		return "", ""
 	}
-	return siteID
+	return site.ID, site.Name
 }
 
 func (r *iotBeaconResource) toAPI(ctx context.Context, m iotBeaconResourceModel, diags *diagSink) omada.IoTBeacon {
@@ -219,7 +225,7 @@ func (r *iotBeaconResource) Create(ctx context.Context, req resource.CreateReque
 		return
 	}
 	sink := &diagSink{&resp.Diagnostics}
-	siteID := r.resolveSite(ctx, plan, sink)
+	siteID, siteName := r.resolveSite(ctx, plan, sink)
 	if resp.Diagnostics.HasError() {
 		return
 	}
@@ -234,6 +240,7 @@ func (r *iotBeaconResource) Create(ctx context.Context, req resource.CreateReque
 	}
 	r.refresh(ctx, created, &plan)
 	plan.SiteID = types.StringValue(siteID)
+	plan.Site = types.StringValue(siteName)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 
@@ -243,7 +250,7 @@ func (r *iotBeaconResource) Read(ctx context.Context, req resource.ReadRequest, 
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	siteID := r.resolveSite(ctx, state, &diagSink{&resp.Diagnostics})
+	siteID, siteName := r.resolveSite(ctx, state, &diagSink{&resp.Diagnostics})
 	if resp.Diagnostics.HasError() {
 		return
 	}
@@ -254,6 +261,7 @@ func (r *iotBeaconResource) Read(ctx context.Context, req resource.ReadRequest, 
 	}
 	r.refresh(ctx, cur, &state)
 	state.SiteID = types.StringValue(siteID)
+	state.Site = types.StringValue(siteName)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }
 
@@ -266,7 +274,7 @@ func (r *iotBeaconResource) Update(ctx context.Context, req resource.UpdateReque
 	}
 	plan.SiteID = state.SiteID
 	sink := &diagSink{&resp.Diagnostics}
-	siteID := r.resolveSite(ctx, plan, sink)
+	siteID, siteName := r.resolveSite(ctx, plan, sink)
 	if resp.Diagnostics.HasError() {
 		return
 	}
@@ -286,6 +294,7 @@ func (r *iotBeaconResource) Update(ctx context.Context, req resource.UpdateReque
 	}
 	r.refresh(ctx, cur, &plan)
 	plan.SiteID = types.StringValue(siteID)
+	plan.Site = types.StringValue(siteName)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 
@@ -295,7 +304,7 @@ func (r *iotBeaconResource) Delete(ctx context.Context, req resource.DeleteReque
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	siteID := r.resolveSite(ctx, state, &diagSink{&resp.Diagnostics})
+	siteID, _ := r.resolveSite(ctx, state, &diagSink{&resp.Diagnostics})
 	if resp.Diagnostics.HasError() {
 		return
 	}
