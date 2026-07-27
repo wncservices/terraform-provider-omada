@@ -33,6 +33,12 @@ type SettingDoc struct {
 	Path string
 	// Verb is the confirmed update method (http.MethodPut or http.MethodPatch).
 	Verb string
+	// OpenAPI marks a document that lives on the Open API rather than the web
+	// API. A few do: `/setting/iot/radio` is served only under /openapi/v1 and
+	// answers -1600 on the web API. Such documents need Open API credentials to
+	// read as well as to write, unlike omada_switch_port where only the write
+	// crosses over.
+	OpenAPI bool
 	// ReadOnlyKeys are document-specific keys the controller owns, beyond the
 	// generic `resource` / `support*` / `exist*` metadata. They are dropped
 	// before an update so the provider never writes back data it does not
@@ -55,6 +61,14 @@ var (
 	MACFilterSetting = SettingDoc{Path: "/setting/firewall/macfilter", Verb: http.MethodPut}
 	// MAC-based authentication. PATCH, like dot1x.
 	MACAuthSetting = SettingDoc{Path: "/setting/macAuth", Verb: http.MethodPatch}
+	// GRE tunnel VPN. PUT; PATCH and POST both answer -1600.
+	GRETunnelSetting = SettingDoc{Path: "/setting/vpns/greTunnel", Verb: http.MethodPut}
+	// IoT radio (the Zigbee/BLE radio on the access points).
+	//
+	// This one is served **only by the Open API** — the web API answers -1600
+	// for the same path — so it needs Open API credentials to read as well as
+	// to write. PATCH; PUT and POST answer -1600.
+	IoTRadioSetting = SettingDoc{Path: "/setting/iot/radio", Verb: http.MethodPatch, OpenAPI: true}
 	// UPnP. PUT, and a single field.
 	UPnPSetting = SettingDoc{Path: "/setting/upnp", Verb: http.MethodPut}
 	// Session limits. PUT. The document also carries a paginated `table` of
@@ -110,10 +124,18 @@ func controllerOwnedKey(k string) bool {
 // GetSetting reads a flat singleton settings document.
 func (c *Client) GetSetting(ctx context.Context, siteID string, doc SettingDoc) (map[string]any, error) {
 	var out map[string]any
-	if err := c.Do(ctx, http.MethodGet, doc.path(siteID), nil, &out); err != nil {
+	if err := c.doSetting(ctx, http.MethodGet, siteID, doc, nil, &out); err != nil {
 		return nil, fmt.Errorf("reading %s: %w", doc.Path, err)
 	}
 	return out, nil
+}
+
+// doSetting dispatches to whichever API surface serves the document.
+func (c *Client) doSetting(ctx context.Context, method, siteID string, doc SettingDoc, body, out any) error {
+	if doc.OpenAPI {
+		return c.DoOpenAPI(ctx, method, c.OpenAPIPath(siteID, doc.Path), body, out)
+	}
+	return c.Do(ctx, method, doc.path(siteID), body, out)
 }
 
 // UpdateSetting read-modify-writes a flat singleton settings document: it
@@ -137,7 +159,7 @@ func (c *Client) UpdateSetting(ctx context.Context, siteID string, doc SettingDo
 		delete(cur, k)
 	}
 	mergeInto(cur, fields)
-	if err := c.Do(ctx, doc.Verb, doc.path(siteID), cur, nil); err != nil {
+	if err := c.doSetting(ctx, doc.Verb, siteID, doc, cur, nil); err != nil {
 		return fmt.Errorf("updating %s: %w", doc.Path, err)
 	}
 	return nil
