@@ -54,6 +54,17 @@ type SwitchPort struct {
 	NetworkTagsSetting int      `json:"networkTagsSetting"`
 	TagIDs             []string `json:"tagIds"`
 
+	// TagName is the controller's label for the port tag in TagIDs, and is
+	// read-only. It is modelled purely so the id is not opaque: a bare
+	// `692c1fd42aa9224b41cc63e4` in a plan tells a reader nothing, while
+	// "AP" alongside it explains the port at a glance.
+	//
+	// It also surfaces a case that is otherwise invisible. A tag deleted from
+	// the site is *not* cleared from the ports referencing it: the id stays,
+	// the controller keeps reporting the old name, and nothing in the UI shows
+	// the dangling reference. Seeing both in state is how you notice.
+	TagName string `json:"tagName"`
+
 	// Duplex and LinkSpeed are the *configured* values, where 0 means
 	// auto-negotiate. They are not the negotiated link state, which the
 	// controller reports separately as `speed`.

@@ -45,6 +45,7 @@ type switchPortResourceModel struct {
 	NativeNetworkID           types.String `tfsdk:"native_network_id"`
 	NetworkTagsSetting        types.Int64  `tfsdk:"network_tags_setting"`
 	TagIDs                    types.List   `tfsdk:"tag_ids"`
+	TagName                   types.String `tfsdk:"tag_name"`
 	Duplex                    types.Int64  `tfsdk:"duplex"`
 	LinkSpeed                 types.Int64  `tfsdk:"link_speed"`
 }
@@ -143,7 +144,16 @@ func (r *switchPortResource) Schema(_ context.Context, _ resource.SchemaRequest,
 			"tag_ids": schema.ListAttribute{
 				ElementType: types.StringType,
 				Optional:    true, Computed: true,
-				MarkdownDescription: "IDs of the networks carried tagged on this port.",
+				MarkdownDescription: "IDs of the **port tags** applied to this port. Despite the name " +
+					"these are not network ids — see `tag_name` for what the controller calls them.\n\n" +
+					"~> A tag deleted from the site is not cleared from the ports that reference it. The " +
+					"id simply stays, and the controller carries on reporting its old name, so a value " +
+					"here can outlive the tag itself.",
+			},
+			"tag_name": schema.StringAttribute{
+				Computed: true,
+				MarkdownDescription: "The controller's label for the applied port tag, e.g. `AP`. " +
+					"Read-only, and present so `tag_ids` is legible rather than opaque.",
 			},
 			"duplex": schema.Int64Attribute{
 				Optional: true, Computed: true,
@@ -241,6 +251,7 @@ func (r *switchPortResource) refresh(ctx context.Context, p *omada.SwitchPort, m
 	m.ProfileVLANOverrideEnable = types.BoolValue(p.ProfileVLANOverrideEnable)
 	m.NativeNetworkID = types.StringValue(p.NativeNetworkID)
 	m.NetworkTagsSetting = types.Int64Value(int64(p.NetworkTagsSetting))
+	m.TagName = types.StringValue(p.TagName)
 	m.Duplex = types.Int64Value(int64(p.Duplex))
 	m.LinkSpeed = types.Int64Value(int64(p.LinkSpeed))
 	lv, _ := stringListValue(ctx, p.TagIDs)

@@ -898,7 +898,12 @@ func newMockController(t *testing.T) *httptest.Server {
 			"profileId": "prof-all", "profileName": "All",
 			"profileOverrideEnable": false, "profileVlanOverrideEnable": true,
 			"nativeNetworkId": "net-1", "networkTagsSetting": 2, "tagIds": []string{},
-			"duplex": 0, "linkSpeed": 0,
+			// The controller reports a tag's label alongside its id. Seeded so
+			// the provider is shown to surface it rather than leaving the id
+			// opaque -- and note it survives even when tagIds is empty, which
+			// is exactly the dangling-reference case.
+			"tagName": "AP",
+			"duplex":  0, "linkSpeed": 0,
 			// Read-only keys the provider must ignore rather than echo back.
 			"poe": 1, "operation": "switching", "speed": 5, "switchMac": "8C-86-DD-10-50-CA",
 		}
