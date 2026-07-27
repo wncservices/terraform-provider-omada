@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	pathpkg "path"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -867,6 +869,99 @@ func newMockController(t *testing.T) *httptest.Server {
 		})
 	})
 
+	// Switch ports — the provider's one cross-surface object. The mock keeps
+	// both halves honest: the read is served on the web API, and the write is
+	// only accepted on the Open API with a bearer token from the grant below.
+	// A test that broke that split (say, by writing through the web API) would
+	// fail here rather than only against a real controller.
+	switchPorts := map[int]map[string]any{}
+	for i := 1; i <= 5; i++ {
+		switchPorts[i] = map[string]any{
+			"port": i, "name": fmt.Sprintf("Port%d", i),
+			"profileId": "prof-all", "profileName": "All",
+			"profileOverrideEnable": false, "profileVlanOverrideEnable": true,
+			"nativeNetworkId": "net-1", "networkTagsSetting": 2, "tagIds": []string{},
+			"duplex": 0, "linkSpeed": 0,
+			// Read-only keys the provider must ignore rather than echo back.
+			"poe": 1, "operation": "switching", "speed": 5, "switchMac": "8C-86-DD-10-50-CA",
+		}
+	}
+
+	mux.HandleFunc("/abc123/api/v2/sites/site-1/switches/8C-86-DD-10-50-CA/ports", func(w http.ResponseWriter, r *http.Request) {
+		if !requireToken(w, r) {
+			return
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		out := make([]map[string]any, 0, len(switchPorts))
+		for i := 1; i <= len(switchPorts); i++ {
+			out = append(out, switchPorts[i])
+		}
+		writeEnvelope(w, 0, "", out)
+	})
+
+	mux.HandleFunc("/openapi/authorize/token", func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]string
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if body["client_id"] != "oa-client" || body["client_secret"] != "oa-secret" {
+			writeEnvelope(w, -44106, "invalid client", nil)
+			return
+		}
+		writeEnvelope(w, 0, "", map[string]any{
+			"accessToken": "oa-token", "tokenType": "bearer", "expiresIn": 7200,
+		})
+	})
+
+	mux.HandleFunc("/openapi/v1/abc123/sites/site-1/switches/8C-86-DD-10-50-CA/ports/", func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "AccessToken=oa-token" {
+			writeEnvelope(w, -44116, "Open API Authorized failed", nil)
+			return
+		}
+		if r.Method != http.MethodPatch {
+			writeEnvelope(w, -1600, "no such path", nil)
+			return
+		}
+		num, err := strconv.Atoi(pathpkg.Base(r.URL.Path))
+		if err != nil {
+			writeEnvelope(w, -1600, "no such path", nil)
+			return
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		cur, ok := switchPorts[num]
+		if !ok {
+			writeEnvelope(w, -1600, "no such path", nil)
+			return
+		}
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			writeEnvelope(w, -1001, "bad body", nil)
+			return
+		}
+		// The controller only accepts this key set here; anything else means
+		// the provider has started echoing the read document back.
+		allowed := map[string]bool{
+			"duplex": true, "linkSpeed": true, "name": true, "nativeNetworkId": true,
+			"networkTagsSetting": true, "profileId": true, "profileOverrideEnable": true,
+			"profileVlanOverrideEnable": true, "tagIds": true,
+		}
+		for k := range body {
+			if !allowed[k] {
+				writeEnvelope(w, -1001, "unexpected key "+k, nil)
+				return
+			}
+			cur[k] = body[k]
+		}
+		// profileName is derived, not written: keep it consistent with profileId
+		// so the provider's read-back sees what a real controller would return.
+		if id, _ := cur["profileId"].(string); id == "prof-main" {
+			cur["profileName"] = "MAIN"
+		} else {
+			cur["profileName"] = "All"
+		}
+		writeEnvelope(w, 0, "Success.", nil)
+	})
+
 	// Site-settings singleton (GET /setting object, PATCH merges top-level groups).
 	// deviceAccount is included deliberately: the provider must never send it,
 	// so it should survive every update untouched.
@@ -1709,8 +1804,8 @@ func writeEnvelope(w http.ResponseWriter, code int, msg string, result any) {
 }
 
 // testProviderConfig renders a provider block pointed at the mock controller.
-// testProviderConfigOpenAPI adds Open API credentials, which operations that go
-// through that surface (network create) need.
+// testProviderConfigOpenAPI adds Open API credentials, which the operations
+// that go through that surface need: network create, and omada_switch_port.
 func testProviderConfigOpenAPI(url string) string {
 	return fmt.Sprintf(`
 provider "omada" {

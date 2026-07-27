@@ -197,6 +197,7 @@ func (p *OmadaProvider) Resources(_ context.Context) []func() resource.Resource 
 		NewSessionLimitResource,
 		NewGatewayBandwidthControlResource,
 		NewPortalAccessControlResource,
+		NewSwitchPortResource,
 		NewSSHSettingsResource,
 		NewDot1XResource,
 		NewMACAuthResource,
