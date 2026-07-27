@@ -195,6 +195,17 @@ Confirmed working: `GET /openapi/v1/{cid}/sites?page=1&pageSize=10`,
 `GET /openapi/v2/{cid}/sites/{site}/lan-profiles?page=1&pageSize=10`,
 `PATCH /openapi/v1/{cid}/sites/{site}/switches/{mac}/ports/{port}`.
 
+Two shapes of Open API dependency have now appeared, and they are worth keeping
+apart because they fail differently:
+
+- **Write-only crossover** (`omada_switch_port`): the read is on the web API, so
+  a plan and a refresh work without credentials and only `apply` fails.
+- **Whole-document** (`omada_iot_radio`): `/setting/iot/radio` is served *only*
+  under `/openapi/v1` — the web API answers `-1600` for the same path — so
+  reading needs credentials too, and the failure appears on refresh. The
+  settings scaffold carries an `OpenAPI bool` on `SettingDoc` for this, and
+  `doSetting` dispatches on it.
+
 ### 2.8 Sparse keyed collections
 
 Some documents carry a long list of keyed entries where most of each entry is
@@ -412,6 +423,10 @@ Every configuration endpoint found on the controller, and where it stands.
 | `/logs/notification` | ✅ `omada_notification_settings` |
 | `/site/audit-notification` | ✅ `omada_audit_notification` |
 | `/rfPlanning` | ⚠️ an action, not config (§5.4) |
+| `/setting/vpns/greTunnel` | ✅ `omada_gre_tunnel` |
+| `/setting/iot/radio` | ✅ `omada_iot_radio` — **Open API only** |
+| `/setting/iot/devices/config` | ❌ iBeacon profiles, list CRUD not started |
+| `/setting/iot/servers` | ❌ empty on this site — no row to learn the shape from |
 | per-device configuration | ⚠️ `omada_switch_port` — switch ports done (§5.5); AP and gateway config not started |
 
 Not found despite looking, and so presumably unsupported on this hardware or

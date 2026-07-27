@@ -1053,6 +1053,7 @@ func newMockController(t *testing.T) *httptest.Server {
 		"snmp":                           http.MethodPut,
 		"upnp":                           http.MethodPut,
 		"firewall/macfilter":             http.MethodPut,
+		"vpns/greTunnel":                 http.MethodPut,
 	}
 	singletons := map[string]map[string]any{
 		"ssh": {
@@ -1079,7 +1080,11 @@ func newMockController(t *testing.T) *httptest.Server {
 			"unmodelledKey": "keep-me",
 		},
 		"firewall/macfilter": {"enable": false, "unmodelledKey": "keep-me"},
-		"upnp":               {"enable": false, "unmodelledKey": "keep-me"},
+		"vpns/greTunnel": {
+			"greEnable": false, "relatedSsidList": []any{},
+			"unmodelledKey": "keep-me",
+		},
+		"upnp": {"enable": false, "unmodelledKey": "keep-me"},
 		"macAuth": {
 			"enable": false, "authType": float64(0), "ssids": []any{},
 			"unmodelledKey": "keep-me",
@@ -1145,6 +1150,50 @@ func newMockController(t *testing.T) *httptest.Server {
 			"unmodelledKey": "keep-me",
 		},
 	}
+	// The IoT radio is served *only* by the Open API — the web API answers
+	// -1600 for the same path — so it gets its own handler rather than joining
+	// the loop below. The mock enforces both halves of that: no web-API route
+	// is registered for it at all, and this one refuses a request without a
+	// bearer token. A provider that tried to read it on the web API would fail
+	// here rather than only against real hardware.
+	iotRadio := map[string]any{
+		// Seeded with a passcode so the test can assert it reaches the
+		// controller and never reaches Terraform state.
+		"enable": true, "consoleMode": float64(0),
+		"passcode":      "seeded-passcode", //nolint:gosec // test fixture, not a real credential
+		"transmitPower": float64(0), "agingTime": float64(30), "format": float64(0),
+		"resource": float64(0), "unmodelledKey": "keep-me",
+	}
+	mux.HandleFunc("/openapi/v1/abc123/sites/site-1/setting/iot/radio", func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "AccessToken=oa-token" {
+			writeEnvelope(w, -44116, "Open API Authorized failed", nil)
+			return
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		switch r.Method {
+		case http.MethodGet:
+		case http.MethodPatch:
+			var in map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&in)
+			if _, sent := in["resource"]; sent {
+				writeEnvelope(w, -1001, "read-only key resource must not be sent", nil)
+				return
+			}
+			for k, v := range in {
+				iotRadio[k] = v
+			}
+		default:
+			writeEnvelope(w, -1600, "Unsupported request path.", nil)
+			return
+		}
+		out := map[string]any{}
+		for k, v := range iotRadio {
+			out[k] = v
+		}
+		writeEnvelope(w, 0, "", out)
+	})
+
 	// Read-only metadata the controller adds to every read of these documents.
 	singletonMeta := map[string]any{
 		"resource": float64(0), "supportTcpScanReject": true, "existTcpScanReject": true,
