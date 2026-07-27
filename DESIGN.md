@@ -1,27 +1,58 @@
 # Design & contribution guide
 
-This document is the map for contributors — human or agent — working on
-`terraform-provider-omada`. It explains **how the provider is built**, **what is
+The map for contributors — human or agent — working on
+`terraform-provider-omada`. It covers **how the provider is built**, **what is
 already covered**, and **what still needs doing**, with enough per-item detail to
-pick something up and ship it without reverse-engineering the whole repo first.
+pick something up without reverse-engineering the repo first.
 
-For toolchain/commands and the security rules, see [`AGENTS.md`](AGENTS.md). For
-the user-facing feature list, see [`README.md`](README.md). This file is the
-"why" and the "what next".
+[`README.md`](README.md) is the user-facing document: installation,
+authentication, and the limitations a practitioner needs to know. This file does
+not repeat it. For toolchain versions and the security rules, see
+[`AGENTS.md`](AGENTS.md).
 
 ---
 
-## 1. What this provider is
+## 1. What this provider is, and the constraint that shapes it
 
-Terraform provider for the **TP-Link Omada** controller (v6 — OC200/OC300 or
-Software Controller). It drives the controller's **reverse-engineered web API**
-(`/{omadacId}/api/v2/…`) — the same API the Omada web UI calls. TP-Link publishes
-no documentation for it; every endpoint and payload shape here was learned from
-the UI and confirmed against a live controller.
+A Terraform provider for the **TP-Link Omada** controller (v6 — OC200/OC300 or
+Software Controller), driving the controller's **undocumented web API**
+(`/{omadacId}/api/v2/…`) — the same API the Omada web UI calls.
 
-We use the web API rather than the official Omada **OpenAPI** because the web API
-is the only surface with full config coverage, including gateway/router settings.
-The one place that hurts us is network *creation* — see §5.1.
+That choice is the single fact that explains most of this codebase. TP-Link
+publishes no specification for the web API, so every endpoint, verb and payload
+shape here was learned from the UI and confirmed against a real controller. The
+alternative — TP-Link's documented Open API — covers far less; the web API is
+the only surface with full configuration coverage, including gateway, firewall
+and site settings. A handful of capabilities exist *only* on the Open API, so the
+provider speaks both (§2.7).
+
+Three consequences run through everything below:
+
+1. **Nothing is assumed.** Verbs differ per endpoint, read and write shapes
+   disagree, and error codes carry meaning. Each is confirmed, and the
+   confirmation is recorded in a comment next to the code that depends on it.
+2. **Unmodelled fields are preserved, never blanked.** A document usually
+   carries more than the provider models, and some of it the controller owns.
+   Read-modify-write is the default (§2.3).
+3. **The blast radius is physical.** This provider configures the network the
+   operator is reaching the controller over. A resource that guesses wrong does
+   not fail a test — it takes a site off the internet. Where a write path could
+   not be validated, it is marked as such rather than shipped quietly.
+
+### 1.1 The validation environment
+
+Resources are exercised against a live Omada **v6.2** controller in a dedicated
+test environment: a gateway (ER707-M2), two switches (ES205GP) and three access
+points (EAP610).
+
+That hardware determines what can be verified, and several gaps in §5 exist
+purely because of it — no static-IP WAN, no BLE-capable access point, no gateway
+reporting `customAcl: true`. When something cannot be exercised there, the rule
+is to say so in the schema and in §5 rather than ship an untested write path.
+
+Contributors do **not** need hardware: unit and acceptance tests run entirely
+against an in-process mock (§4.0). Hardware is needed only to *discover* a new
+endpoint or confirm a verb.
 
 ---
 
@@ -209,8 +240,8 @@ apart because they fail differently:
 ### 2.7a `site` must be Optional **and** Computed
 
 Every resource takes an optional `site`, and it forces replacement. Declaring it
-`Optional` alone looks right and is a trap — one that reached a live homelab
-plan before it was caught.
+`Optional` alone looks right and is a trap — one that reached a live plan on real
+hardware before it was caught.
 
 The import id for these resources allows omitting the `<site>/` prefix. When it
 is omitted, an `Optional`-only `site` imports as **null**. A configuration that
@@ -310,6 +341,62 @@ preserved via read-modify-write.
 
 ## 4. Adding a resource — the recipe
 
+### 4.0 Building and testing locally
+
+Toolchain versions are pinned in [`.tool-versions`](.tool-versions); with
+[asdf](https://asdf-vm.com), `asdf install` gets them. Then once per clone:
+
+```sh
+go mod download
+make tools            # tfplugindocs + golangci-lint into GOPATH/bin
+```
+
+```sh
+make build            # compile
+make test             # unit tests
+make testacc          # acceptance tests (TF_ACC=1)
+make lint             # golangci-lint
+make docs             # regenerate docs/ from schema + examples/
+```
+
+**Neither test suite needs a controller.** Unit tests exercise the client against
+an `httptest` mock; acceptance tests drive a real Terraform binary against an
+in-process mock controller (`internal/provider/provider_test.go`). Both run in CI
+on every PR, offline and without secrets.
+
+The mock is not a stub that says yes. It reproduces the controller's actual
+behaviour — including the parts that bite: rejecting the wrong verb with `-1600`,
+refusing read-only keys, answering `-1` to a create that succeeded, enforcing
+which lists belong to the firmware. **When you discover a controller quirk, teach
+the mock about it**, so the next regression fails in CI rather than on someone's
+network.
+
+### 4.1 Running against a real controller
+
+Needed only to discover an endpoint or confirm a verb. Point the CLI at a local
+build via `~/.terraformrc`:
+
+```hcl
+provider_installation {
+  dev_overrides {
+    "wncservices/omada" = "/path/to/gopath/bin"
+  }
+  direct {}
+}
+```
+
+```sh
+make install
+export OMADA_URL="https://omada.example.com"
+export OMADA_USERNAME="…"
+export OMADA_PASSWORD="…"
+terraform plan        # no `terraform init` under dev_overrides
+```
+
+Terraform warns that dev overrides are in effect; that is expected.
+
+### 4.2 The recipe
+
 This is the exact loop the existing resources were built with. An agent can follow
 it end to end.
 
@@ -390,9 +477,16 @@ done by hand via the `dev_overrides` flow (README → Local development).
 exposes for a site can be managed declaratively.** Read-only telemetry, one-shot
 actions and per-client runtime state are out of scope (§5.7).
 
-Everything below was established against a live v6.2.14 controller
-(ER707-M2 gateway, ES205GP switches, EAP610 APs). An endpoint's absence from
-this list means it was not found — not that it does not exist.
+Everything below was established against the validation environment (§1.1). An
+endpoint's absence from this list means it was **not found** — not that it does
+not exist. Three items were listed here as "presumably unsupported" for months
+and turned out to be present under names nobody had guessed, so treat absence as
+weak evidence.
+
+[`README.md`](README.md#limitations) carries the short, user-facing version of
+the same ground: what a practitioner cannot do today, without the
+implementation notes. Keep the two in step, but do not copy detail into it —
+users need the boundary, contributors need the reason.
 
 ### 5.0 Coverage audit
 
@@ -554,7 +648,7 @@ These cannot be finished by writing code alone.
 2. **One-to-one NAT** — the field set is complete
    (`name`, `status`, `externalIp`, `internalIp`, `dmz`, `interfaceIds`), but
    `-34282` says it requires a **WAN on a static-IP connection**, which the
-   development site does not have. No write path can be exercised, and shipping
+   validation environment does not have. No write path can be exercised, and shipping
    an untestable NAT write path is how you take someone's internet down.
 3. *(resolved — see §5.8. `/setting/wan-ports` still rejects every query
    parameter tried, but it turned out not to be needed.)*
@@ -571,7 +665,7 @@ controller returned.
 
 | Would become | Endpoint | Shape / notes |
 |---|---|---|
-| `omada_policy_route` | `/setting/transmission/policyRoutings` | paginated, empty on the dev site — needs one entry or a capture for the item shape |
+| `omada_policy_route` | `/setting/transmission/policyRoutings` | paginated, empty on the validation environment — needs one entry or a capture for the item shape |
 | `omada_ddns` | `/setting/service/ddns` | paginated, empty; `support*` flags indicate TP-Link DDNS + custom providers |
 | `omada_reboot_schedule`, `omada_poe_schedule` | `/setting/service/rebootSchedules`, `/poeSchedules` | paginated, empty; pair naturally with `omada_time_range` |
 | `omada_url_filter` | `/setting/firewall/urlfilterings` | **needs its query parameter** — answers `-1001` to every one tried |
@@ -602,7 +696,7 @@ that shape rather than inventing a third.
   subsets. Unmodelled fields are preserved by read-modify-write, never blanked.
 - **`omada_vpn`** manages only `name`/`enable`, and its write verbs are
   **inferred** — the read shape is live-verified but create/update/delete were
-  never exercised, because the dev site's only VPN was removed. Prefer importing
+  never exercised, because the validation environment's only VPN was removed. Prefer importing
   and toggling `enable` until someone validates the verbs on hardware.
 - **`omada_portal`** covers the functional settings; the landing-page design
   (logo, colours, terms, **background image**) is preserved but not manageable.
@@ -619,7 +713,7 @@ that shape rather than inventing a third.
 Straightforward, but each needs one real row before the item shape is known:
 
 - `/setting/ips/grid/blacklist` and `/setting/ips/signature` — both read-only
-  (every write verb `-1600`) and empty on the dev site.
+  (every write verb `-1600`) and empty on the validation environment.
 - `omada_clients` — per-client runtime state.
 - `omada_service_types`, `omada_wan_ports` — listings that would make the opaque
   ids in §5.1 and §5.8 usable by name.

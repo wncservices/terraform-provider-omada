@@ -34,8 +34,8 @@ resource "omada_dns_proxy" "this" {
   enabled_default_server_types = []
 
   custom_server {
-    name = "hagezi"
-    urls = ["https://root.hagezi.org/dns-query"]
+    name = "filtered"
+    urls = ["https://dns.example.com/dns-query"]
   }
 }
 
@@ -69,7 +69,7 @@ output "builtin_doh_resolvers" {
 Required:
 
 - `name` (String) Label for this resolver.
-- `urls` (List of String) DoH endpoint URLs, e.g. `https://root.hagezi.org/dns-query`. May not be empty.
+- `urls` (List of String) DoH endpoint URLs, e.g. `https://dns.example.com/dns-query`. May not be empty.
 
 Optional:
 

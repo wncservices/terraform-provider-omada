@@ -15,8 +15,8 @@ Manages a local (LAN) DNS record on the Omada controller — a hostname/domain r
 ```terraform
 resource "omada_lan_dns" "nas" {
   name            = "nas"
-  domain          = "nas.wilant.be"
-  aliases         = ["storage.wilant.be"]
+  domain          = "nas.example.internal"
+  aliases         = ["storage.example.internal"]
   ip_addresses    = ["10.10.20.50"]
   lan_network_ids = [omada_network.iot.id] # or existing network IDs
 }
@@ -27,7 +27,7 @@ resource "omada_lan_dns" "nas" {
 
 ### Required
 
-- `domain` (String) The domain/hostname to resolve, e.g. `nas.wilant.be`.
+- `domain` (String) The domain/hostname to resolve, e.g. `nas.example.internal`.
 - `lan_network_ids` (List of String) IDs of the LAN networks this record is served on. Must reference existing networks.
 - `name` (String) Display name for the record.
 

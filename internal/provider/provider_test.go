@@ -1219,7 +1219,7 @@ func newMockController(t *testing.T) *httptest.Server {
 				map[string]any{"type": float64(5), "enable": false},
 			},
 			"customizedServers": []any{
-				map[string]any{"name": "hagezi", "enable": true, "servers": []any{"https://root.hagezi.org/dns-query"}},
+				map[string]any{"name": "filtered", "enable": true, "servers": []any{"https://dns.example.com/dns-query"}},
 			},
 		},
 		"supportDnsOverride": true,
