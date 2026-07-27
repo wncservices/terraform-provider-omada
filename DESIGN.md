@@ -427,7 +427,7 @@ Every configuration endpoint found on the controller, and where it stands.
 | `/setting/iot/radio` | ✅ `omada_iot_radio` — **Open API only** |
 | `/setting/iot/devices/config` | ⚠️ `omada_iot_beacon` — create/delete unverified (§5.1) |
 | `/setting/iot/servers` | ✅ `omada_iot_server` |
-| per-device configuration | ⚠️ `omada_switch_port` — switch ports done (§5.5); AP and gateway config not started |
+| per-device configuration | ⚠️ `omada_switch_port`, `omada_gateway` (§5.5); AP config not started |
 
 Not found despite looking, and so presumably unsupported on this hardware or
 named unlike anything tried: DMZ, port triggering, multi-nets NAT, IPTV,
@@ -620,10 +620,23 @@ gateway:
   switching, using this provider's guess rather than the practitioner's — so
   Delete drops the resource from state and warns, and nothing is written.
 
-Still to do: AP configuration (`GET /api/v2/sites/{site}/eaps/{mac}`), gateway
-configuration (`.../gateways/{mac}`), and the rest of the port document — PoE,
-per-port QoS, storm control, spanning tree — none of which appear in the UI
-capture, so each needs its own capture before anything is written.
+**The gateway turned out to be the easy one.** `PATCH /sites/{site}/gateways/{mac}`
+on the *web* API is a genuine partial update — a body with one key changes that
+key and nothing else (PUT and POST answer -1600). No Open API needed: the
+gateway's Open API document exists but carries only telemetry. Every field
+`omada_gateway` models was confirmed by writing the device its own value back.
+
+Its **physical ports are deliberately excluded**, and that is a scope decision
+rather than a missing feature. `portConfigs` is where the WAN lives, so a wrong
+write there is not a misconfigured feature but a site with no internet. The
+scoped resources (`omada_wan`, port forwards, disable-NAT, firewall) cover the
+same ground reviewably. `UpdateGateway` refuses a body containing `portConfigs`
+even if some future caller builds one.
+
+Still to do: AP configuration (`GET /api/v2/sites/{site}/eaps/{mac}`), and the
+rest of the switch port document — PoE, per-port QoS, storm control, spanning
+tree — none of which appear in the UI capture, so each needs its own capture
+before anything is written.
 
 Supporting reads already available:
 `GET /api/v2/sites/{site}/setting/lan/profileSummary` (port profiles as
