@@ -1,6 +1,6 @@
-# Forward WAN :443 to the homelab ingress on the LAN.
+# Forward WAN :443 to an ingress controller on the LAN.
 resource "omada_port_forward" "https" {
-  name          = "Homelab"
+  name          = "ingress"
   external_port = "443"
   forward_ip    = "10.10.20.95"
   forward_port  = "443"

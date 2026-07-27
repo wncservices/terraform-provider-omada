@@ -21,13 +21,13 @@ func TestAccLanDNSResource(t *testing.T) {
 				Config: testProviderConfig(srv.URL) + `
 resource "omada_lan_dns" "test" {
   name            = "nas"
-  domain          = "nas.wilant.be"
+  domain          = "nas.example.internal"
   ip_addresses    = ["10.10.20.50"]
   lan_network_ids = ["net-1"]
 }`,
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttrSet("omada_lan_dns.test", "id"),
-					resource.TestCheckResourceAttr("omada_lan_dns.test", "domain", "nas.wilant.be"),
+					resource.TestCheckResourceAttr("omada_lan_dns.test", "domain", "nas.example.internal"),
 					resource.TestCheckResourceAttr("omada_lan_dns.test", "enable", "true"),
 					resource.TestCheckResourceAttr("omada_lan_dns.test", "ip_addresses.#", "1"),
 					resource.TestCheckResourceAttr("omada_lan_dns.test", "lan_network_ids.0", "net-1"),
@@ -43,14 +43,14 @@ resource "omada_lan_dns" "test" {
 				Config: testProviderConfig(srv.URL) + `
 resource "omada_lan_dns" "test" {
   name            = "nas"
-  domain          = "storage.wilant.be"
-  aliases         = ["files.wilant.be"]
+  domain          = "storage.example.internal"
+  aliases         = ["files.example.internal"]
   ip_addresses    = ["10.10.20.50"]
   lan_network_ids = ["net-1"]
 }`,
 				Check: resource.ComposeAggregateTestCheckFunc(
-					resource.TestCheckResourceAttr("omada_lan_dns.test", "domain", "storage.wilant.be"),
-					resource.TestCheckResourceAttr("omada_lan_dns.test", "aliases.0", "files.wilant.be"),
+					resource.TestCheckResourceAttr("omada_lan_dns.test", "domain", "storage.example.internal"),
+					resource.TestCheckResourceAttr("omada_lan_dns.test", "aliases.0", "files.example.internal"),
 				),
 			},
 		},

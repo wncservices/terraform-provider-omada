@@ -4,7 +4,7 @@ page_title: "omada_iot_beacon Resource - omada"
 subcategory: ""
 description: |-
   Manages an iBeacon profile: a BLE advertisement broadcast by IoT-capable access points (Settings -> IoT -> iBeacon).
-  ~> Requires access points with a BLE radio. A profile must name at least one AP in device_macs, and the controller checks that list against its own IoT-capable device inventory. On hardware without a BLE radio (the EAP610, for example) that inventory is empty and every create is refused with -33284 The devices in the device list are not in the current site. Create and delete are therefore implemented but unverified — they could not be exercised on the development site. Read, import and update are confirmed live.
+  ~> Requires access points with a BLE radio. A profile must name at least one AP in device_macs, and the controller checks that list against its own IoT-capable device inventory. On hardware without a BLE radio (the EAP610, for example) that inventory is empty and every create is refused with -33284 The devices in the device list are not in the current site. Create and delete are therefore implemented but unverified — they could not be exercised on the validation environment. Read, import and update are confirmed live.
   ~> A beacon is a public broadcast. Any phone in range can read the UUID, major and minor and use them to identify the location — that is the entire point, and it does not stop at people you invited. Treat the triple as a published identifier, not a secret, and do not encode anything sensitive in it.
 ---
 
@@ -12,7 +12,7 @@ description: |-
 
 Manages an iBeacon profile: a BLE advertisement broadcast by IoT-capable access points (Settings -> IoT -> iBeacon).
 
-~> **Requires access points with a BLE radio.** A profile must name at least one AP in `device_macs`, and the controller checks that list against its own IoT-capable device inventory. On hardware without a BLE radio (the EAP610, for example) that inventory is empty and every create is refused with `-33284 The devices in the device list are not in the current site`. **Create and delete are therefore implemented but unverified** — they could not be exercised on the development site. Read, import and update are confirmed live.
+~> **Requires access points with a BLE radio.** A profile must name at least one AP in `device_macs`, and the controller checks that list against its own IoT-capable device inventory. On hardware without a BLE radio (the EAP610, for example) that inventory is empty and every create is refused with `-33284 The devices in the device list are not in the current site`. **Create and delete are therefore implemented but unverified** — they could not be exercised on the validation environment. Read, import and update are confirmed live.
 
 ~> **A beacon is a public broadcast.** Any phone in range can read the UUID, major and minor and use them to identify the location — that is the entire point, and it does not stop at people you invited. Treat the triple as a published identifier, not a secret, and do not encode anything sensitive in it.
 

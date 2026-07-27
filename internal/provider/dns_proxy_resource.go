@@ -131,7 +131,7 @@ func (r *dnsProxyResource) Schema(_ context.Context, _ resource.SchemaRequest, r
 						"urls": schema.ListAttribute{
 							ElementType:         types.StringType,
 							Required:            true,
-							MarkdownDescription: "DoH endpoint URLs, e.g. `https://root.hagezi.org/dns-query`. May not be empty.",
+							MarkdownDescription: "DoH endpoint URLs, e.g. `https://dns.example.com/dns-query`. May not be empty.",
 						},
 					},
 				},

@@ -10,8 +10,8 @@ resource "omada_dns_proxy" "this" {
   enabled_default_server_types = []
 
   custom_server {
-    name = "hagezi"
-    urls = ["https://root.hagezi.org/dns-query"]
+    name = "filtered"
+    urls = ["https://dns.example.com/dns-query"]
   }
 }
 

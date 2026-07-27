@@ -29,8 +29,8 @@ resource "omada_dns_proxy" "this" {
   enabled_default_server_types = [1]
 
   custom_server {
-    name = "hagezi"
-    urls = ["https://root.hagezi.org/dns-query"]
+    name = "filtered"
+    urls = ["https://dns.example.com/dns-query"]
   }
 }`,
 				Check: resource.ComposeAggregateTestCheckFunc(
@@ -45,9 +45,9 @@ resource "omada_dns_proxy" "this" {
 					resource.TestCheckResourceAttr("omada_dns_proxy.this", "available_default_servers.1.type", "1"),
 					resource.TestCheckResourceAttr("omada_dns_proxy.this", "available_default_servers.1.enabled", "true"),
 					resource.TestCheckResourceAttr("omada_dns_proxy.this", "custom_server.#", "1"),
-					resource.TestCheckResourceAttr("omada_dns_proxy.this", "custom_server.0.name", "hagezi"),
+					resource.TestCheckResourceAttr("omada_dns_proxy.this", "custom_server.0.name", "filtered"),
 					resource.TestCheckResourceAttr("omada_dns_proxy.this", "custom_server.0.enable", "true"),
-					resource.TestCheckResourceAttr("omada_dns_proxy.this", "custom_server.0.urls.0", "https://root.hagezi.org/dns-query"),
+					resource.TestCheckResourceAttr("omada_dns_proxy.this", "custom_server.0.urls.0", "https://dns.example.com/dns-query"),
 					resource.TestCheckResourceAttr("omada_dns_proxy.this", "doh_server_limit", "32"),
 					resource.TestCheckResourceAttr("omada_dns_proxy.this", "supports_dns_override", "true"),
 				),
@@ -65,8 +65,8 @@ resource "omada_dns_proxy" "this" {
   enabled_default_server_types = [0, 5]
 
   custom_server {
-    name   = "hagezi"
-    urls   = ["https://root.hagezi.org/dns-query", "https://dns.hagezi.org/dns-query"]
+    name   = "filtered"
+    urls   = ["https://dns.example.com/dns-query", "https://dns2.example.com/dns-query"]
   }
 
   custom_server {

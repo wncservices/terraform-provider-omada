@@ -6,7 +6,7 @@ A Terraform provider for the **TP-Link Omada** controller (v6 — OC200/OC300 or
 Software Controller), managing network/router config as IaC. It drives the
 controller's reverse-engineered web API (`/{omadacId}/api/v2/…`) — the same API
 the Omada UI uses — which is the only surface with full config coverage, including
-the gateway settings other providers omit. Consumed by the homelab `lab/omada/`
+the gateway settings other providers omit. Consumed by the `lab/omada/`
 Terraform config; published to the public Terraform Registry as `wncservices/omada`.
 
 For the architecture, the coverage matrix, the "add a resource" recipe, and the

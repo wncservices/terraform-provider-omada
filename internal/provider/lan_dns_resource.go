@@ -82,7 +82,7 @@ func (r *lanDNSResource) Schema(_ context.Context, _ resource.SchemaRequest, res
 				Required:            true,
 			},
 			"domain": schema.StringAttribute{
-				MarkdownDescription: "The domain/hostname to resolve, e.g. `nas.wilant.be`.",
+				MarkdownDescription: "The domain/hostname to resolve, e.g. `nas.example.internal`.",
 				Required:            true,
 			},
 			"aliases": schema.ListAttribute{

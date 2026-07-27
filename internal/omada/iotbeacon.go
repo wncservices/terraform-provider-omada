@@ -22,9 +22,10 @@ import (
 // The list and the update verb were confirmed by writing a profile's own values
 // back. **Create and delete could not be exercised**: a profile must name at
 // least one IoT-capable AP in `macList`, the controller checks that list
-// against `/setting/iot/devices`, and on the development site that endpoint is
-// empty — the EAP610s there have no BLE radio, so every create is refused with
-// -33284 "The devices in the device list are not in the current site". The verb
+// against `/setting/iot/devices`, and in the validation environment that endpoint
+// is empty: its access points (EAP610) have no BLE radio, so every create is
+// refused with -33284 "The devices in the device list are not in the current
+// site". The verb
 // and path are the ones the collection accepts (POST answers -1001 for a body
 // that is merely incomplete, not -1600), but the success path is unproven.
 type IoTBeacon struct {
