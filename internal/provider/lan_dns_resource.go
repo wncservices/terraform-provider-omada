@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/hashicorp/terraform-plugin-framework-validators/listvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
@@ -15,10 +16,22 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/booldefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 
 	"github.com/wncservices/terraform-provider-omada/internal/omada"
 )
+
+// maxLanDNSAliases is the controller's ceiling on a single record's alias list.
+//
+// Established empirically: records with 7 aliases apply cleanly, an 8th is
+// rejected. The controller's own message is off by one — it reports
+// "omada api error -1001: Size of aliases should be less than 7" while happily
+// holding 7 — so this validator is the honest bound, not a copy of the text.
+//
+// Without it the failure surfaces only at apply time, after Terraform has
+// already updated other resources in the run.
+const maxLanDNSAliases = 7
 
 var (
 	_ resource.Resource                = &lanDNSResource{}
@@ -86,10 +99,18 @@ func (r *lanDNSResource) Schema(_ context.Context, _ resource.SchemaRequest, res
 				Required:            true,
 			},
 			"aliases": schema.ListAttribute{
-				MarkdownDescription: "Additional domains that resolve to the same addresses.",
-				ElementType:         types.StringType,
-				Optional:            true,
-				Computed:            true,
+				MarkdownDescription: fmt.Sprintf(
+					"Additional domains that resolve to the same addresses. The controller "+
+						"accepts at most %d; split the names across multiple `omada_lan_dns` "+
+						"records to go beyond that.",
+					maxLanDNSAliases,
+				),
+				ElementType: types.StringType,
+				Optional:    true,
+				Computed:    true,
+				Validators: []validator.List{
+					listvalidator.SizeAtMost(maxLanDNSAliases),
+				},
 			},
 			"ip_addresses": schema.ListAttribute{
 				MarkdownDescription: "IPv4 addresses the domain resolves to.",

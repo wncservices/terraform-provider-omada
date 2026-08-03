@@ -33,7 +33,7 @@ resource "omada_lan_dns" "nas" {
 
 ### Optional
 
-- `aliases` (List of String) Additional domains that resolve to the same addresses.
+- `aliases` (List of String) Additional domains that resolve to the same addresses. The controller accepts at most 7; split the names across multiple `omada_lan_dns` records to go beyond that.
 - `custom_ttl` (Boolean) Whether a custom TTL is used.
 - `enable` (Boolean) Whether the record is enabled.
 - `ip_addresses` (List of String) IPv4 addresses the domain resolves to.
