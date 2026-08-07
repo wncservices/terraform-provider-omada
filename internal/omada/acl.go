@@ -98,12 +98,52 @@ func (c *Client) CreateACL(ctx context.Context, siteID string, in *ACLInput) (*A
 	if err != nil {
 		return nil, err
 	}
+	
+	// Collect all ACLs matching the requested name to detect duplicates and
+	// prevent binding state to the wrong firewall rule.
+	var matches []*ACL
 	for i := range acls {
 		if acls[i].Name == in.Name {
-			return &acls[i], nil
+			matches = append(matches, &acls[i])
 		}
 	}
-	return nil, fmt.Errorf("acl %q not found after create", in.Name)
+	
+	if len(matches) == 0 {
+		return nil, fmt.Errorf("acl %q not found after create", in.Name)
+	}
+	
+	// If multiple ACLs share the same name, attempt to disambiguate by comparing
+	// additional attributes (policy, source/destination types, status) that were
+	// set in the create request. This mitigates the risk of binding Terraform
+	// state to a different ACL when duplicate names exist or a concurrent actor
+	// creates a same-named ACL between the POST and list operations.
+	if len(matches) > 1 {
+		var candidates []*ACL
+		for _, acl := range matches {
+			if acl.Policy == in.Policy &&
+				acl.SourceType == in.SourceType &&
+				acl.DestinationType == in.DestinationType &&
+				acl.Status == in.Status {
+				candidates = append(candidates, acl)
+			}
+		}
+		
+		// If disambiguation succeeded, use the unique candidate.
+		if len(candidates) == 1 {
+			return candidates[0], nil
+		}
+		
+		// If disambiguation failed or multiple candidates remain, fail with a
+		// clear error to prevent operating on the wrong firewall rule.
+		if len(candidates) == 0 {
+			return nil, fmt.Errorf("acl %q: found %d ACLs with the same name after create, but none match the requested attributes (policy=%d, sourceType=%d, destinationType=%d, status=%t); cannot determine which ACL was created — this may indicate a race condition or duplicate ACL names on site %q",
+				in.Name, len(matches), in.Policy, in.SourceType, in.DestinationType, in.Status, siteID)
+		}
+		return nil, fmt.Errorf("acl %q: found %d ACLs with the same name and matching attributes after create; cannot uniquely identify which ACL was created — duplicate ACL names are not supported on site %q",
+			in.Name, len(candidates), siteID)
+	}
+	
+	return matches[0], nil
 }
 
 // UpdateACL replaces a rule (PUT — PATCH is unsupported here).
