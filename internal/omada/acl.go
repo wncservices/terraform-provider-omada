@@ -83,7 +83,21 @@ func (c *Client) GetACL(ctx context.Context, siteID string, aclType int, id stri
 	return nil, fmt.Errorf("acl %q not found on site %q", id, siteID)
 }
 
-// CreateACL creates a rule (null result → resolved by name within its type).
+// CreateACL creates a rule.
+//
+// The POST returns a null result, so the new rule is resolved by name from the
+// list that follows. That is safe here, and the reason is worth writing down
+// because it is not obvious from this code: **the controller enforces unique
+// ACL names site-wide.** Creating a second rule with an existing name is
+// refused with -33006 "This name already exists in this site", confirmed
+// against a live controller.
+//
+// So the name match below cannot be ambiguous. Adding duplicate-detection
+// around it would be dead code — and worse than dead: any such check has to
+// run *after* the POST has already succeeded, so failing there would orphan
+// the rule it just created, and the next apply would then hit -33006 forever
+// because the orphan owns the name. See CreateIoTServer for the endpoint where
+// post-create recovery genuinely is needed, and how it is done.
 func (c *Client) CreateACL(ctx context.Context, siteID string, in *ACLInput) (*ACL, error) {
 	if in.CustomACLPorts == nil {
 		in.CustomACLPorts = []any{}

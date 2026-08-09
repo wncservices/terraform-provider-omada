@@ -784,6 +784,30 @@ Supporting reads already available:
 `{id, name, type}`) and `.../setting/lan/networks-split` (networks with their
 `interfaceIds`).
 
+### 5.4a Resolve-by-name after create, and when it is safe
+
+Ten client files create an object and then find it by name, because the POST
+returns no id. That reads as fragile — and an automated security scan raised it
+against `CreateACL` as a state-binding vulnerability.
+
+It is not, and the reason is a **controller-side uniqueness constraint** rather
+than anything in this code: creating a second ACL with an existing name is
+refused with `-33006 "This name already exists in this site"`. Confirmed live.
+Other endpoints do the same — IoT servers answer `-33249` for a duplicate
+transport-stream name.
+
+Two things follow, both worth knowing before "hardening" one of these:
+
+- **Record the constraint next to the code that depends on it.** An unwritten
+  assumption gets re-raised, by a person or a bot, roughly forever. `acl.go`
+  now names the error code.
+- **Duplicate-detection after the POST is worse than nothing.** Any such check
+  runs after the write has already succeeded, so failing there orphans the
+  object it just created — and the next apply then collides with that orphan's
+  name permanently. If a create endpoint genuinely does need post-hoc recovery,
+  the pattern is §5.5a's: treat the list as authoritative and *recover*, never
+  bail.
+
 ### 5.5a A create that lies about failing
 
 `POST /setting/iot/servers` stores the server and **then answers `-1 "General
