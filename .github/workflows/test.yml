@@ -67,6 +67,22 @@ jobs:
             | sh -s -- -b "$(go env GOPATH)/bin" "${GOLANGCI_LINT_VERSION}"
       - run: "$(go env GOPATH)/bin/golangci-lint run ./..."
 
+      # golangci-lint is not configured with a formatter, so without this an
+      # unformatted file merges with a green tick. That is not hypothetical:
+      # PR #50 arrived with six whitespace-only lines in internal/omada/acl.go
+      # and passed every check.
+      #
+      # `gofmt -l` prints the files it would change and exits 0 either way, so
+      # the output has to be turned into the failure.
+      - name: gofmt
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "These files are not gofmt-clean. Run \`make fmt\`:"
+            echo "$unformatted"
+            exit 1
+          fi
+
   docs:
     name: Docs up to date
     runs-on: ubuntu-latest
