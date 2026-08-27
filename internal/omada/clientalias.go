@@ -55,3 +55,11 @@ func (c *Client) UpdateClientAlias(ctx context.Context, siteID, mac, alias strin
 	}
 	return nil
 }
+
+// ClearClientAlias restores the controller's unaliased representation by
+// setting the display name to the client's normalized MAC address. A blank
+// name is accepted but ignored by Omada 6.2, while this is the value the
+// controller reports for clients without an alias.
+func (c *Client) ClearClientAlias(ctx context.Context, siteID, mac string) error {
+	return c.UpdateClientAlias(ctx, siteID, mac, NormalizeMAC(mac))
+}

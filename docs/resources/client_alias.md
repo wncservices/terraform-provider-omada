@@ -5,7 +5,7 @@ subcategory: ""
 description: |-
   Manages the friendly display name (alias) of a known wired or wireless client.
   The alias is attached to the client's MAC address and is independent of DHCP reservations. The client may be online or offline, but it must already be known to the controller.
-  ~> A client cannot be created or destroyed. Removing this resource from configuration leaves the alias exactly as last applied; Terraform only stops managing it.
+  ~> A client cannot be created or destroyed. Removing this resource from configuration clears its alias in the controller without deleting the client.
 ---
 
 # omada_client_alias (Resource)
@@ -14,7 +14,7 @@ Manages the friendly display name (alias) of a known wired or wireless client.
 
 The alias is attached to the client's MAC address and is independent of DHCP reservations. The client may be online or offline, but it must already be known to the controller.
 
-~> **A client cannot be created or destroyed.** Removing this resource from configuration leaves the alias exactly as last applied; Terraform only stops managing it.
+~> **A client cannot be created or destroyed.** Removing this resource from configuration clears its alias in the controller without deleting the client.
 
 ## Example Usage
 

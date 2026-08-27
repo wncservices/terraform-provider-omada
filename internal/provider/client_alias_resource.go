@@ -7,8 +7,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 
+	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
@@ -48,7 +50,7 @@ func (r *clientAliasResource) Schema(_ context.Context, _ resource.SchemaRequest
 			"The alias is attached to the client's MAC address and is independent of DHCP reservations. " +
 			"The client may be online or offline, but it must already be known to the controller.\n\n" +
 			"~> **A client cannot be created or destroyed.** Removing this resource from configuration " +
-			"leaves the alias exactly as last applied; Terraform only stops managing it.",
+			"clears its alias in the controller without deleting the client.",
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
 				Computed:            true,
@@ -80,7 +82,10 @@ func (r *clientAliasResource) Schema(_ context.Context, _ resource.SchemaRequest
 				},
 			},
 			"alias": schema.StringAttribute{
-				Required:            true,
+				Required: true,
+				Validators: []validator.String{
+					stringvalidator.RegexMatches(regexp.MustCompile(`\S`), "must contain at least one non-whitespace character"),
+				},
 				MarkdownDescription: "Friendly display name shown for the client in the controller.",
 			},
 		},
@@ -207,13 +212,20 @@ func (r *clientAliasResource) Update(ctx context.Context, req resource.UpdateReq
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 
-// Delete forgets the client without clearing its persistent alias.
-func (r *clientAliasResource) Delete(_ context.Context, _ resource.DeleteRequest, resp *resource.DeleteResponse) {
-	resp.Diagnostics.AddWarning(
-		"Client alias left as configured",
-		"A network client cannot be deleted, so Terraform has only stopped managing its alias. "+
-			"The display name remains unchanged in the controller.",
-	)
+// Delete clears the alias without deleting the known client itself.
+func (r *clientAliasResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
+	var state clientAliasResourceModel
+	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	siteID, _ := r.resolveSite(ctx, state, &diagSink{&resp.Diagnostics})
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	if err := r.data.client.ClearClientAlias(ctx, siteID, state.MAC.ValueString()); err != nil && !clientAliasNotFound(err) {
+		resp.Diagnostics.AddError("Unable to clear client alias", err.Error())
+	}
 }
 
 // ImportState takes the client MAC, or "<site>/<mac>".

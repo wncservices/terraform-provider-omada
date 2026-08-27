@@ -41,7 +41,7 @@ func TestAccClientAliasResource(t *testing.T) {
 
 	resource.Test(t, resource.TestCase{
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
-		CheckDestroy:             checkClient("Office Printer"),
+		CheckDestroy:             checkClient("00-11-22-33-44-55"),
 		Steps: []resource.TestStep{
 			{
 				Config: testProviderConfig(srv.URL) + `
@@ -118,6 +118,31 @@ resource "omada_client_alias" "invalid" {
 }`,
 			ExpectError: regexp.MustCompile(`Invalid MAC address`),
 		}},
+	})
+}
+
+func TestAccClientAliasRejectsBlankAlias(t *testing.T) {
+	srv := newMockController(t)
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: testProviderConfig(srv.URL) + `
+resource "omada_client_alias" "blank" {
+  mac   = "00-11-22-33-44-55"
+  alias = ""
+}`,
+				ExpectError: regexp.MustCompile(`must contain at least one non-whitespace character`),
+			},
+			{
+				Config: testProviderConfig(srv.URL) + `
+resource "omada_client_alias" "blank" {
+  mac   = "00-11-22-33-44-55"
+  alias = "  "
+}`,
+				ExpectError: regexp.MustCompile(`must contain at least one non-whitespace character`),
+			},
+		},
 	})
 }
 
