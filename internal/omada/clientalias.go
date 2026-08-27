@@ -33,6 +33,9 @@ func clientAliasPath(siteID, mac string) string {
 // client. The controller's response includes runtime state, but only the two
 // configuration identity fields are decoded here.
 func (c *Client) GetClientAlias(ctx context.Context, siteID, mac string) (*ClientAlias, error) {
+	if !ValidMAC(mac) {
+		return nil, fmt.Errorf("reading client: invalid MAC address %q", mac)
+	}
 	var client ClientAlias
 	if err := c.Do(ctx, http.MethodGet, clientAliasPath(siteID, mac), nil, &client); err != nil {
 		return nil, fmt.Errorf("reading client %s: %w", mac, err)
@@ -43,6 +46,9 @@ func (c *Client) GetClientAlias(ctx context.Context, siteID, mac string) (*Clien
 
 // UpdateClientAlias changes only the display name for a known client.
 func (c *Client) UpdateClientAlias(ctx context.Context, siteID, mac, alias string) error {
+	if !ValidMAC(mac) {
+		return fmt.Errorf("updating client alias: invalid MAC address %q", mac)
+	}
 	body := map[string]any{"name": alias}
 	if err := c.Do(ctx, http.MethodPatch, clientAliasPath(siteID, mac), body, nil); err != nil {
 		return fmt.Errorf("updating client alias for %s: %w", mac, err)

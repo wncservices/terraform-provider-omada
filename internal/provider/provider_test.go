@@ -1810,6 +1810,7 @@ func newMockController(t *testing.T) *httptest.Server {
 			"rateLimit": map[string]any{"enable": false},
 		},
 	}
+	clientReadError := 0
 	const clientBase = "/abc123/api/v2/sites/site-1/clients/"
 	mux.HandleFunc(clientBase, func(w http.ResponseWriter, r *http.Request) {
 		if !requireToken(w, r) {
@@ -1818,6 +1819,10 @@ func newMockController(t *testing.T) *httptest.Server {
 		key := strings.TrimPrefix(r.URL.Path, clientBase)
 		mu.Lock()
 		defer mu.Unlock()
+		if clientReadError != 0 {
+			writeEnvelope(w, clientReadError, "injected client read failure", nil)
+			return
+		}
 		client := clients[key]
 		if client == nil {
 			writeEnvelope(w, -34326, "Client does not exist.", nil)
@@ -1840,9 +1845,14 @@ func newMockController(t *testing.T) *httptest.Server {
 			writeEnvelope(w, -1600, "Unsupported request path.", nil)
 		}
 	})
-	mux.HandleFunc("/debug/clients", func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc("/debug/clients", func(w http.ResponseWriter, r *http.Request) {
 		mu.Lock()
 		defer mu.Unlock()
+		if r.Method == http.MethodPost {
+			clientReadError, _ = strconv.Atoi(r.URL.Query().Get("error"))
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
 		_ = json.NewEncoder(w).Encode(clients)
 	})
 

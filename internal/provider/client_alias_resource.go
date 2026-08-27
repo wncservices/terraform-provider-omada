@@ -5,6 +5,7 @@ package provider
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -13,6 +14,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 
 	"github.com/wncservices/terraform-provider-omada/internal/omada"
@@ -68,6 +70,7 @@ func (r *clientAliasResource) Schema(_ context.Context, _ resource.SchemaRequest
 			"mac": schema.StringAttribute{
 				CustomType: macType{},
 				Required:   true,
+				Validators: []validator.String{validMACValidator{}},
 				MarkdownDescription: "Client MAC address. Accepts `:`, `-` or `.` separators in any case. " +
 					"Changing the address replaces the resource because aliases are keyed by MAC.",
 				PlanModifiers: []planmodifier.String{
@@ -161,6 +164,11 @@ func (r *clientAliasResource) Create(ctx context.Context, req resource.CreateReq
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 
+func clientAliasNotFound(err error) bool {
+	var apiErr *omada.APIError
+	return errors.As(err, &apiErr) && apiErr.Code == -34326
+}
+
 func (r *clientAliasResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
 	var state clientAliasResourceModel
 	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
@@ -173,7 +181,11 @@ func (r *clientAliasResource) Read(ctx context.Context, req resource.ReadRequest
 	}
 	cur, err := r.data.client.GetClientAlias(ctx, siteID, state.MAC.ValueString())
 	if err != nil {
-		resp.State.RemoveResource(ctx)
+		if clientAliasNotFound(err) {
+			resp.State.RemoveResource(ctx)
+			return
+		}
+		resp.Diagnostics.AddError("Unable to refresh client alias", err.Error())
 		return
 	}
 	state.refresh(cur)
@@ -206,10 +218,23 @@ func (r *clientAliasResource) Delete(_ context.Context, _ resource.DeleteRequest
 
 // ImportState takes the client MAC, or "<site>/<mac>".
 func (r *clientAliasResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
-	id := req.ID
-	if site, rest, found := strings.Cut(id, "/"); found {
+	id := strings.TrimSpace(req.ID)
+	site := ""
+	if parsedSite, rest, found := strings.Cut(id, "/"); found {
+		if parsedSite == "" || strings.Contains(rest, "/") {
+			resp.Diagnostics.AddError("Invalid client alias import identifier",
+				"Expected a MAC address or <site>/<mac> with a non-empty site name.")
+			return
+		}
+		site, id = parsedSite, rest
+	}
+	if !omada.ValidMAC(id) {
+		resp.Diagnostics.AddError("Invalid client alias import identifier",
+			fmt.Sprintf("%q is not a complete six-octet MAC address", id))
+		return
+	}
+	if site != "" {
 		resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("site"), site)...)
-		id = rest
 	}
 	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("mac"), newMACValue(omada.NormalizeMAC(id)))...)
 }
