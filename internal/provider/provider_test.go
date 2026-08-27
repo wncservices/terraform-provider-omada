@@ -1801,6 +1801,61 @@ func newMockController(t *testing.T) *httptest.Server {
 		}
 	})
 
+	// Client aliases. The client document mixes persistent configuration with
+	// runtime state; PATCH is partial and must contain only the alias name.
+	clients := map[string]map[string]any{
+		"00-11-22-33-44-55": {
+			"mac": "00-11-22-33-44-55", "name": "printer", "active": false,
+			"ipSetting": map[string]any{"useFixedAddr": false},
+			"rateLimit": map[string]any{"enable": false},
+		},
+	}
+	clientReadError := 0
+	const clientBase = "/abc123/api/v2/sites/site-1/clients/"
+	mux.HandleFunc(clientBase, func(w http.ResponseWriter, r *http.Request) {
+		if !requireToken(w, r) {
+			return
+		}
+		key := strings.TrimPrefix(r.URL.Path, clientBase)
+		mu.Lock()
+		defer mu.Unlock()
+		if clientReadError != 0 {
+			writeEnvelope(w, clientReadError, "injected client read failure", nil)
+			return
+		}
+		client := clients[key]
+		if client == nil {
+			writeEnvelope(w, -34326, "Client does not exist.", nil)
+			return
+		}
+		switch r.Method {
+		case http.MethodGet:
+			writeEnvelope(w, 0, "", client)
+		case http.MethodPatch:
+			var in map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&in)
+			name, ok := in["name"].(string)
+			if !ok || len(in) != 1 {
+				writeEnvelope(w, -1001, "client alias PATCH must contain only name", nil)
+				return
+			}
+			client["name"] = name
+			writeEnvelope(w, 0, "", client)
+		default:
+			writeEnvelope(w, -1600, "Unsupported request path.", nil)
+		}
+	})
+	mux.HandleFunc("/debug/clients", func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		if r.Method == http.MethodPost {
+			clientReadError, _ = strconv.Atoi(r.URL.Query().Get("error"))
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(clients)
+	})
+
 	// RADIUS profiles. Like /setting/portals this is a BARE ARRAY, not a
 	// paginated envelope. The secret at authServer[].radiusPwd is stored here
 	// so the test can assert it reaches the controller, survives an update

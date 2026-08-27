@@ -218,6 +218,7 @@ func (p *OmadaProvider) Resources(_ context.Context) []func() resource.Resource 
 		NewQoSBandwidthControlResource,
 		NewDisableNATResource,
 		NewDHCPReservationResource,
+		NewClientAliasResource,
 		NewRadiusProfileResource,
 	}
 }

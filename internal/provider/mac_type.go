@@ -9,6 +9,7 @@ import (
 
 	"github.com/hashicorp/terraform-plugin-framework/attr"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
+	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types/basetypes"
 	"github.com/hashicorp/terraform-plugin-go/tftypes"
 
@@ -34,6 +35,7 @@ type macType struct {
 var (
 	_ basetypes.StringTypable                    = macType{}
 	_ basetypes.StringValuableWithSemanticEquals = macValue{}
+	_ validator.String                           = validMACValidator{}
 )
 
 func (t macType) String() string { return "macType" }
@@ -96,4 +98,27 @@ func (v macValue) StringSemanticEquals(_ context.Context, newValuable basetypes.
 		return v.StringValue.Equal(other.StringValue), diags
 	}
 	return omada.NormalizeMAC(v.ValueString()) == omada.NormalizeMAC(other.ValueString()), diags
+}
+
+type validMACValidator struct{}
+
+func (validMACValidator) Description(context.Context) string {
+	return "value must be a complete six-octet MAC address"
+}
+
+func (validMACValidator) MarkdownDescription(context.Context) string {
+	return "value must be a complete six-octet MAC address"
+}
+
+func (validMACValidator) ValidateString(_ context.Context, req validator.StringRequest, resp *validator.StringResponse) {
+	if req.ConfigValue.IsNull() || req.ConfigValue.IsUnknown() {
+		return
+	}
+	if !omada.ValidMAC(req.ConfigValue.ValueString()) {
+		resp.Diagnostics.AddAttributeError(
+			req.Path,
+			"Invalid MAC address",
+			fmt.Sprintf("%q is not a complete six-octet MAC address", req.ConfigValue.ValueString()),
+		)
+	}
 }

@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"regexp"
 	"strings"
 )
 
@@ -60,6 +61,16 @@ type dhcpReservationRaw struct {
 func NormalizeMAC(mac string) string {
 	r := strings.NewReplacer(":", "-", ".", "-", " ", "")
 	return strings.ToUpper(r.Replace(strings.TrimSpace(mac)))
+}
+
+var macAddressPattern = regexp.MustCompile(`(?i)^[0-9a-f]{2}(?:[:.-][0-9a-f]{2}){5}$`)
+
+// ValidMAC reports whether mac is exactly one six-octet hardware address in a
+// spelling NormalizeMAC can canonicalise. It deliberately rejects paths,
+// collection keys, EUI-64 values and truncated addresses before they can be
+// interpolated into controller URLs.
+func ValidMAC(mac string) bool {
+	return macAddressPattern.MatchString(strings.TrimSpace(mac))
 }
 
 func dhcpReservationPath(siteID string) string {
