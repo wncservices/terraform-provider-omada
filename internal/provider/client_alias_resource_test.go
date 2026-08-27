@@ -80,10 +80,13 @@ resource "omada_client_alias" "printer" {
 	})
 }
 
-func TestClientAliasNotFoundClassification(t *testing.T) {
+func TestClientAliasErrorClassification(t *testing.T) {
 	t.Parallel()
 	if !clientAliasNotFound(fmt.Errorf("wrapped: %w", &omada.APIError{Code: -34326, Msg: "gone"})) {
 		t.Fatal("-34326 should be classified as a missing client")
+	}
+	if !clientAliasTemporarilyUnavailable(fmt.Errorf("wrapped: %w", &omada.APIError{Code: -41011, Msg: "offline"})) {
+		t.Fatal("-41011 should be classified as a temporarily unavailable client")
 	}
 	for _, err := range []error{
 		&omada.APIError{Code: -1, Msg: "transient"},
@@ -91,6 +94,9 @@ func TestClientAliasNotFoundClassification(t *testing.T) {
 	} {
 		if clientAliasNotFound(err) {
 			t.Fatalf("%v should not be classified as a missing client", err)
+		}
+		if clientAliasTemporarilyUnavailable(err) {
+			t.Fatalf("%v should not be classified as a temporarily unavailable client", err)
 		}
 	}
 }
@@ -177,6 +183,30 @@ resource "omada_client_alias" "printer" {
 				PreConfig:   func() { setMockClientReadError(t, srv.URL, -1) },
 				Config:      config,
 				ExpectError: regexp.MustCompile(`Unable to refresh client alias`),
+			},
+			{
+				PreConfig: func() { setMockClientReadError(t, srv.URL, 0) },
+				Config:    config,
+			},
+		},
+	})
+}
+
+func TestAccClientAliasTemporarilyUnavailablePreservesState(t *testing.T) {
+	srv := newMockController(t)
+	config := testProviderConfig(srv.URL) + `
+resource "omada_client_alias" "printer" {
+  mac   = "00-11-22-33-44-55"
+  alias = "Printer"
+}`
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{Config: config},
+			{
+				PreConfig: func() { setMockClientReadError(t, srv.URL, -41011) },
+				Config:    config,
+				PlanOnly:  true,
 			},
 			{
 				PreConfig: func() { setMockClientReadError(t, srv.URL, 0) },

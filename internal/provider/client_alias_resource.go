@@ -48,7 +48,8 @@ func (r *clientAliasResource) Schema(_ context.Context, _ resource.SchemaRequest
 	resp.Schema = schema.Schema{
 		MarkdownDescription: "Manages the friendly display name (alias) of a known wired or wireless client.\n\n" +
 			"The alias is attached to the client's MAC address and is independent of DHCP reservations. " +
-			"The client may be online or offline, but it must already be known to the controller.\n\n" +
+			"The client may be online or offline, but it must already be known to the controller. " +
+			"If the controller temporarily stops listing a sleeping client, refresh preserves the prior alias state and emits a warning.\n\n" +
 			"~> **A client cannot be created or destroyed.** Removing this resource from configuration " +
 			"clears its alias in the controller without deleting the client.",
 		Attributes: map[string]schema.Attribute{
@@ -174,6 +175,11 @@ func clientAliasNotFound(err error) bool {
 	return errors.As(err, &apiErr) && apiErr.Code == -34326
 }
 
+func clientAliasTemporarilyUnavailable(err error) bool {
+	var apiErr *omada.APIError
+	return errors.As(err, &apiErr) && apiErr.Code == -41011
+}
+
 func (r *clientAliasResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
 	var state clientAliasResourceModel
 	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
@@ -188,6 +194,14 @@ func (r *clientAliasResource) Read(ctx context.Context, req resource.ReadRequest
 	if err != nil {
 		if clientAliasNotFound(err) {
 			resp.State.RemoveResource(ctx)
+			return
+		}
+		if clientAliasTemporarilyUnavailable(err) {
+			resp.Diagnostics.AddWarning(
+				"Client alias temporarily unavailable",
+				fmt.Sprintf("The Omada controller does not currently list client %s. Preserving its prior alias state so an offline client does not block reconciliation.", state.MAC.ValueString()),
+			)
+			resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 			return
 		}
 		resp.Diagnostics.AddError("Unable to refresh client alias", err.Error())

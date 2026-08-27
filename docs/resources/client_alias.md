@@ -4,7 +4,7 @@ page_title: "omada_client_alias Resource - omada"
 subcategory: ""
 description: |-
   Manages the friendly display name (alias) of a known wired or wireless client.
-  The alias is attached to the client's MAC address and is independent of DHCP reservations. The client may be online or offline, but it must already be known to the controller.
+  The alias is attached to the client's MAC address and is independent of DHCP reservations. The client may be online or offline, but it must already be known to the controller. If the controller temporarily stops listing a sleeping client, refresh preserves the prior alias state and emits a warning.
   ~> A client cannot be created or destroyed. Removing this resource from configuration clears its alias in the controller without deleting the client.
 ---
 
@@ -12,7 +12,7 @@ description: |-
 
 Manages the friendly display name (alias) of a known wired or wireless client.
 
-The alias is attached to the client's MAC address and is independent of DHCP reservations. The client may be online or offline, but it must already be known to the controller.
+The alias is attached to the client's MAC address and is independent of DHCP reservations. The client may be online or offline, but it must already be known to the controller. If the controller temporarily stops listing a sleeping client, refresh preserves the prior alias state and emits a warning.
 
 ~> **A client cannot be created or destroyed.** Removing this resource from configuration clears its alias in the controller without deleting the client.
 
