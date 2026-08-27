@@ -326,6 +326,7 @@ preserved via read-modify-write.
 | `omada_time_range` | CRUD | live | schedule profile; create returns `profileId`; list has no `totalRows` |
 | `omada_radius_profile` | CRUD | live | bare-array list; `radiusPwd` write-only, carried across updates |
 | `omada_dhcp_reservation` | CRUD | live | item path keyed on **MAC**; unknown key still answers 0 |
+| `omada_client_alias` | R/U (adopt existing) | live | persistent alias keyed on MAC; independent of DHCP reservations |
 | `omada_disable_nat` | CRUD | live (delete inferred) | plural list / singular item paths; update is `PUT`; one rule per WAN port |
 | `omada_notification_settings` | R/U (singleton) | live | outside `/setting/`; `PATCH` full doc; sparse keyed maps |
 | `omada_audit_notification` | R/U (singleton) | live | as above; entries carry only `webhook` |
@@ -545,6 +546,7 @@ Every configuration endpoint found on the controller, and where it stands.
 | `/setting/iot/devices/config` | ⚠️ `omada_iot_beacon` — create/delete unverified (§5.1) |
 | `/setting/iot/servers` | ✅ `omada_iot_server` |
 | per-device configuration | ⚠️ `omada_switch_port`, `omada_gateway` (§5.5); AP config not started |
+| `/clients/{mac}` | ✅ `omada_client_alias` (persistent alias only; runtime fields remain out of scope) |
 
 Not found despite looking, and so presumably unsupported on this hardware or
 named unlike anything tried: DMZ, port triggering, multi-nets NAT, switch-side
@@ -714,7 +716,8 @@ Straightforward, but each needs one real row before the item shape is known:
 
 - `/setting/ips/grid/blacklist` and `/setting/ips/signature` — both read-only
   (every write verb `-1600`) and empty on the validation environment.
-- `omada_clients` — per-client runtime state.
+- `omada_clients` — per-client runtime state. Persistent client aliases are
+  configuration and are managed separately by `omada_client_alias`.
 - `omada_service_types`, `omada_wan_ports` — listings that would make the opaque
   ids in §5.1 and §5.8 usable by name.
 
@@ -840,7 +843,8 @@ captured on it at all. Needs hardware that reports `customAcl: true`.
 Not gaps, and not planned: statistics and telemetry, log retrieval, one-shot
 actions (reboot, upgrade, RF optimization runs, speed tests), client
 block/unblock, and controller-level (as opposed to site-level) administration
-such as users, roles and cloud access.
+such as users, roles and cloud access. Persistent client aliases are configuration,
+not runtime state, and are managed by `omada_client_alias`.
 
 ### 5.8 The `1_<hex>` WAN interface id — resolved
 
