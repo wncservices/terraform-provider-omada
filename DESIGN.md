@@ -302,6 +302,7 @@ preserved via read-modify-write.
 | `omada_firewall_acl` | CRUD | live | ACL type auto-discovered on import; custom ports/devices sent empty (§5.3) |
 | `omada_wlan_group` | CRUD | live | |
 | `omada_mdns_reflector` | CRUD | live | |
+| `omada_mdns_profile` | CRUD | live | separate collection (`/setting/profiles/mdns`) from the reflector rules; controller caps custom profiles per site (5 on dev hardware), reported as `mdnsCustomMaxProfileNum` |
 | `omada_port_profile` | CRUD | live · subset | STP block deep-merged |
 | `omada_wireless_network` | CRUD | live · subset | `psk` write-only |
 | `omada_static_route` | CRUD | live | update is `PUT` (`PATCH` → `-1600`) |
@@ -527,6 +528,7 @@ Every configuration endpoint found on the controller, and where it stands.
 | `/setting/profiles/rateLimits` | ✅ `omada_rate_limit_profile` |
 | `/setting/profiles/apns` | ❌ §5.2 — cellular APNs |
 | `/setting/service/mdns` | ✅ `omada_mdns_reflector` |
+| `/setting/profiles/mdns` | ✅ `omada_mdns_profile` — the custom-service catalog `profile_ids` references; not discoverable by path-guessing under `/setting/service/mdns/*`, it lives in the `/setting/profiles/*` family alongside `service-type` |
 | `/setting/service/dhcp` | ✅ `omada_dhcp_reservation` |
 | `/setting/service/ddns` | ❌ §5.2 |
 | `/setting/service/rebootSchedules`, `/poeSchedules` | ❌ §5.2 |
