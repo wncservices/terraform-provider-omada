@@ -5,6 +5,7 @@ package omada
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 )
 
@@ -13,9 +14,67 @@ type EnableFlag struct {
 	Enable bool `json:"enable"`
 }
 
-// IntEnable is the {"enable": int} variant used by lanNetworkIpv6Config.
-type IntEnable struct {
-	Enable int `json:"enable"`
+// NetworkIPv6RDNSS is the "Get from Prefix Delegation" sub-config: which WAN
+// port supplies the delegation and which sub-prefix (preId) this network takes
+// from it. Verified live with a WAN that delegates more than a single /64 —
+// each network picks a distinct preId to get its own /64 out of the same
+// delegation, e.g. two networks as preId 100 and 101.
+type NetworkIPv6RDNSS struct {
+	// PreType is a controller enum; 1 is the only value observed live.
+	// TP-Link does not document the mapping.
+	PreType  int    `json:"preType"`
+	PortUUID string `json:"portUuid"`
+	PreID    int    `json:"preId"`
+	DNSv6    string `json:"dnsv6"` // e.g. "auto"
+}
+
+// NetworkIPv6RA is the Router Advertisement sub-config that accompanies SLAAC.
+type NetworkIPv6RA struct {
+	Enable            bool `json:"enable"`
+	Preference        int  `json:"preference"`
+	ValidLifetime     int  `json:"validLifetime"`
+	PreferredLifetime int  `json:"preferredLifetime"`
+}
+
+// NetworkIPv6Config is lanNetworkIpv6Config. Verified live: a disabled network
+// reports only {"enable": 0} — proto/rdnss/ra are absent entirely, not merely
+// empty — while an enabled one carries proto plus the sub-object matching it
+// ("rdnss" for SLAAC+RDNSS, confirmed live; other IPv6 Interface Type modes
+// the controller UI offers — DHCPv6, SLAAC+Stateless DHCP, Pass-Through — are
+// unverified and use payload shapes this type does not model).
+//
+// The asymmetric proto handling in UpdateNetwork (this file) exists because of
+// this type: the web API's GET can return a bare {"enable": 0} that decodes
+// here with Proto == "", but the PATCH rejects the object without a proto
+// present at all.
+type NetworkIPv6Config struct {
+	Enable int               `json:"enable"`
+	Proto  string            `json:"proto,omitempty"`
+	RDNSS  *NetworkIPv6RDNSS `json:"rdnss,omitempty"`
+	RA     *NetworkIPv6RA    `json:"ra,omitempty"`
+}
+
+// UnmarshalJSON tolerates the numeric proto placeholder that UpdateNetwork
+// (below) sends to satisfy the controller's PATCH validation when a network
+// is disabled: `proto` decodes as a string in real enabled state ("rdnss")
+// but round-trips through a mocked/echoing PATCH as the literal int 0 sent
+// for that placeholder. Either way, a non-string proto means "no mode" here.
+func (c *NetworkIPv6Config) UnmarshalJSON(data []byte) error {
+	type alias NetworkIPv6Config
+	raw := struct {
+		Proto json.RawMessage `json:"proto"`
+		*alias
+	}{alias: (*alias)(c)}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	if len(raw.Proto) > 0 {
+		var s string
+		if err := json.Unmarshal(raw.Proto, &s); err == nil {
+			c.Proto = s
+		}
+	}
+	return nil
 }
 
 // DHCPOption is a DHCP option handed out on a network (e.g. code 138 -> a
@@ -63,10 +122,10 @@ type Network struct {
 	MLDSnoop          bool `json:"mldSnoopEnable"`
 	DHCPL2Relay       bool `json:"dhcpL2RelayEnable"`
 
-	DHCPGuard    EnableFlag   `json:"dhcpGuard"`
-	DHCPv6Guard  EnableFlag   `json:"dhcpv6Guard"`
-	IPv6Config   IntEnable    `json:"lanNetworkIpv6Config"`
-	DHCPSettings DHCPSettings `json:"dhcpSettings"`
+	DHCPGuard    EnableFlag        `json:"dhcpGuard"`
+	DHCPv6Guard  EnableFlag        `json:"dhcpv6Guard"`
+	IPv6Config   NetworkIPv6Config `json:"lanNetworkIpv6Config"`
+	DHCPSettings DHCPSettings      `json:"dhcpSettings"`
 }
 
 // DHCPEnabled reports whether the DHCP server is enabled on this network.

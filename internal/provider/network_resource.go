@@ -18,6 +18,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringdefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/types"
+	"github.com/hashicorp/terraform-plugin-framework/types/basetypes"
 
 	"github.com/wncservices/terraform-provider-omada/internal/omada"
 )
@@ -44,20 +45,20 @@ type networkResourceModel struct {
 	GatewaySubnet types.String `tfsdk:"gateway_subnet"`
 	InterfaceIDs  types.List   `tfsdk:"interface_ids"`
 
-	Isolation         types.Bool  `tfsdk:"isolation"`
-	AllLan            types.Bool  `tfsdk:"all_lan"`
-	Portal            types.Bool  `tfsdk:"portal_enable"`
-	RateLimit         types.Bool  `tfsdk:"rate_limit_enable"`
-	QosQueue          types.Bool  `tfsdk:"qos_queue_enable"`
-	AccessControlRule types.Bool  `tfsdk:"access_control_rule"`
-	ArpDetection      types.Bool  `tfsdk:"arp_detection_enable"`
-	IGMPSnoop         types.Bool  `tfsdk:"igmp_snoop_enable"`
-	FastLeave         types.Bool  `tfsdk:"fast_leave_enable"`
-	MLDSnoop          types.Bool  `tfsdk:"mld_snoop_enable"`
-	DHCPL2Relay       types.Bool  `tfsdk:"dhcp_l2_relay_enable"`
-	DHCPGuard         types.Bool  `tfsdk:"dhcp_guard_enable"`
-	DHCPv6Guard       types.Bool  `tfsdk:"dhcpv6_guard_enable"`
-	IPv6ConfigEnable  types.Int64 `tfsdk:"ipv6_config_enable"`
+	Isolation         types.Bool   `tfsdk:"isolation"`
+	AllLan            types.Bool   `tfsdk:"all_lan"`
+	Portal            types.Bool   `tfsdk:"portal_enable"`
+	RateLimit         types.Bool   `tfsdk:"rate_limit_enable"`
+	QosQueue          types.Bool   `tfsdk:"qos_queue_enable"`
+	AccessControlRule types.Bool   `tfsdk:"access_control_rule"`
+	ArpDetection      types.Bool   `tfsdk:"arp_detection_enable"`
+	IGMPSnoop         types.Bool   `tfsdk:"igmp_snoop_enable"`
+	FastLeave         types.Bool   `tfsdk:"fast_leave_enable"`
+	MLDSnoop          types.Bool   `tfsdk:"mld_snoop_enable"`
+	DHCPL2Relay       types.Bool   `tfsdk:"dhcp_l2_relay_enable"`
+	DHCPGuard         types.Bool   `tfsdk:"dhcp_guard_enable"`
+	DHCPv6Guard       types.Bool   `tfsdk:"dhcpv6_guard_enable"`
+	IPv6              types.Object `tfsdk:"ipv6"`
 
 	DHCPEnabled   types.Bool   `tfsdk:"dhcp_enabled"`
 	DHCPStart     types.String `tfsdk:"dhcp_start"`
@@ -77,6 +78,98 @@ type dhcpOptionModel struct {
 	Code  types.Int64  `tfsdk:"code"`
 	Type  types.Int64  `tfsdk:"type"`
 	Value types.String `tfsdk:"value"`
+}
+
+// IPv6: modelled as nested objects rather than a bare enable int, matching
+// the shape confirmed live for "Get from Prefix Delegation" (proto "rdnss").
+// Other IPv6 Interface Type modes the controller UI offers are unverified —
+// see NetworkIPv6Config in internal/omada/networks.go.
+type ipv6RDNSSModel struct {
+	PreType  types.Int64  `tfsdk:"pre_type"`
+	PortUUID types.String `tfsdk:"port_uuid"`
+	PreID    types.Int64  `tfsdk:"pre_id"`
+	DNSv6    types.String `tfsdk:"dns_v6"`
+}
+
+var ipv6RDNSSAttrTypes = map[string]attr.Type{
+	"pre_type":  types.Int64Type,
+	"port_uuid": types.StringType,
+	"pre_id":    types.Int64Type,
+	"dns_v6":    types.StringType,
+}
+
+type ipv6RAModel struct {
+	Enable            types.Bool  `tfsdk:"enable"`
+	Preference        types.Int64 `tfsdk:"preference"`
+	ValidLifetime     types.Int64 `tfsdk:"valid_lifetime"`
+	PreferredLifetime types.Int64 `tfsdk:"preferred_lifetime"`
+}
+
+var ipv6RAAttrTypes = map[string]attr.Type{
+	"enable":             types.BoolType,
+	"preference":         types.Int64Type,
+	"valid_lifetime":     types.Int64Type,
+	"preferred_lifetime": types.Int64Type,
+}
+
+type ipv6Model struct {
+	Enable types.Bool   `tfsdk:"enable"`
+	Proto  types.String `tfsdk:"proto"`
+	RDNSS  types.Object `tfsdk:"rdnss"`
+	RA     types.Object `tfsdk:"ra"`
+}
+
+var ipv6AttrTypes = map[string]attr.Type{
+	"enable": types.BoolType,
+	"proto":  types.StringType,
+	"rdnss":  types.ObjectType{AttrTypes: ipv6RDNSSAttrTypes},
+	"ra":     types.ObjectType{AttrTypes: ipv6RAAttrTypes},
+}
+
+// ipv6ObjectValue builds the ipv6 nested object from the controller's
+// lanNetworkIpv6Config. rdnss/ra are null (not just zero-valued) when the
+// controller omitted them entirely, matching how a disabled network reports
+// only {"enable": 0} with no other keys.
+func ipv6ObjectValue(c omada.NetworkIPv6Config) (types.Object, diag.Diagnostics) {
+	var diags diag.Diagnostics
+
+	rdnss := types.ObjectNull(ipv6RDNSSAttrTypes)
+	if c.RDNSS != nil {
+		v, d := types.ObjectValue(ipv6RDNSSAttrTypes, map[string]attr.Value{
+			"pre_type":  types.Int64Value(int64(c.RDNSS.PreType)),
+			"port_uuid": types.StringValue(c.RDNSS.PortUUID),
+			"pre_id":    types.Int64Value(int64(c.RDNSS.PreID)),
+			"dns_v6":    types.StringValue(c.RDNSS.DNSv6),
+		})
+		diags.Append(d...)
+		rdnss = v
+	}
+
+	ra := types.ObjectNull(ipv6RAAttrTypes)
+	if c.RA != nil {
+		v, d := types.ObjectValue(ipv6RAAttrTypes, map[string]attr.Value{
+			"enable":             types.BoolValue(c.RA.Enable),
+			"preference":         types.Int64Value(int64(c.RA.Preference)),
+			"valid_lifetime":     types.Int64Value(int64(c.RA.ValidLifetime)),
+			"preferred_lifetime": types.Int64Value(int64(c.RA.PreferredLifetime)),
+		})
+		diags.Append(d...)
+		ra = v
+	}
+
+	proto := types.StringNull()
+	if c.Proto != "" {
+		proto = types.StringValue(c.Proto)
+	}
+
+	obj, d := types.ObjectValue(ipv6AttrTypes, map[string]attr.Value{
+		"enable": types.BoolValue(c.Enable != 0),
+		"proto":  proto,
+		"rdnss":  rdnss,
+		"ra":     ra,
+	})
+	diags.Append(d...)
+	return obj, diags
 }
 
 func (r *networkResource) Metadata(_ context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
@@ -141,7 +234,38 @@ func (r *networkResource) Schema(_ context.Context, _ resource.SchemaRequest, re
 			"dhcp_l2_relay_enable": b("DHCP L2 relay."),
 			"dhcp_guard_enable":    b("Rogue-DHCP protection (distinct from the DHCP server)."),
 			"dhcpv6_guard_enable":  b("Rogue-DHCPv6 protection."),
-			"ipv6_config_enable":   i("IPv6 configuration mode for the network (0 = disabled)."),
+			"ipv6": schema.SingleNestedAttribute{
+				MarkdownDescription: "IPv6 configuration for the network. Omitting `proto`/`rdnss`/`ra` and setting " +
+					"`enable = false` matches a disabled network exactly (the controller reports no other keys at " +
+					"all in that state). Only the \"Get from Prefix Delegation\" mode (`proto = \"rdnss\"`) is " +
+					"verified against a live controller; the other IPv6 Interface Type modes the UI offers " +
+					"(DHCPv6, SLAAC+Stateless DHCP, Pass-Through) use payload shapes this attribute does not model.",
+				Optional: true, Computed: true,
+				Attributes: map[string]schema.Attribute{
+					"enable": schema.BoolAttribute{Optional: true, Computed: true, MarkdownDescription: "Whether IPv6 is enabled on this network."},
+					"proto":  schema.StringAttribute{Optional: true, Computed: true, MarkdownDescription: "IPv6 mode. Only `\"rdnss\"` (SLAAC + RDNSS, prefix delegation) is verified."},
+					"rdnss": schema.SingleNestedAttribute{
+						Optional: true, Computed: true,
+						MarkdownDescription: "Prefix-delegation config, required when `proto = \"rdnss\"`.",
+						Attributes: map[string]schema.Attribute{
+							"pre_type":  schema.Int64Attribute{Optional: true, Computed: true, MarkdownDescription: "Controller enum; `1` is the only value observed live and undocumented by TP-Link."},
+							"port_uuid": schema.StringAttribute{Optional: true, Computed: true, MarkdownDescription: "WAN port ID the delegation comes from — see the `omada_wan` data source."},
+							"pre_id":    schema.Int64Attribute{Optional: true, Computed: true, MarkdownDescription: "Sub-prefix ID this network takes from the delegation. Distinct networks need distinct IDs to each get their own /64."},
+							"dns_v6":    schema.StringAttribute{Optional: true, Computed: true, MarkdownDescription: "DNS handed out over RDNSS, e.g. `\"auto\"`."},
+						},
+					},
+					"ra": schema.SingleNestedAttribute{
+						Optional: true, Computed: true,
+						MarkdownDescription: "Router Advertisement config that accompanies SLAAC.",
+						Attributes: map[string]schema.Attribute{
+							"enable":             schema.BoolAttribute{Optional: true, Computed: true},
+							"preference":         schema.Int64Attribute{Optional: true, Computed: true, MarkdownDescription: "RA preference; `1` (medium) observed live."},
+							"valid_lifetime":     schema.Int64Attribute{Optional: true, Computed: true, MarkdownDescription: "Valid lifetime in seconds."},
+							"preferred_lifetime": schema.Int64Attribute{Optional: true, Computed: true, MarkdownDescription: "Preferred lifetime in seconds."},
+						},
+					},
+				},
+			},
 
 			"dhcp_enabled":    b("Enable the DHCP server on this network."),
 			"dhcp_start":      schema.StringAttribute{Optional: true, Computed: true, MarkdownDescription: "First address of the DHCP pool."},
@@ -227,8 +351,34 @@ func (r *networkResource) fieldsFrom(ctx context.Context, m networkResourceModel
 	if !m.DHCPv6Guard.IsNull() && !m.DHCPv6Guard.IsUnknown() {
 		f["dhcpv6Guard"] = map[string]any{"enable": m.DHCPv6Guard.ValueBool()}
 	}
-	if !m.IPv6ConfigEnable.IsNull() && !m.IPv6ConfigEnable.IsUnknown() {
-		f["lanNetworkIpv6Config"] = map[string]any{"enable": m.IPv6ConfigEnable.ValueInt64()}
+	if !m.IPv6.IsNull() && !m.IPv6.IsUnknown() {
+		var iv ipv6Model
+		diags.Append(m.IPv6.As(ctx, &iv, basetypes.ObjectAsOptions{UnhandledNullAsEmpty: true, UnhandledUnknownAsEmpty: true})...)
+		enable := 0
+		if iv.Enable.ValueBool() {
+			enable = 1
+		}
+		v6 := map[string]any{"enable": enable}
+		if !iv.Proto.IsNull() && iv.Proto.ValueString() != "" {
+			v6["proto"] = iv.Proto.ValueString()
+		}
+		if !iv.RDNSS.IsNull() && !iv.RDNSS.IsUnknown() {
+			var rd ipv6RDNSSModel
+			diags.Append(iv.RDNSS.As(ctx, &rd, basetypes.ObjectAsOptions{UnhandledNullAsEmpty: true, UnhandledUnknownAsEmpty: true})...)
+			v6["rdnss"] = map[string]any{
+				"preType": rd.PreType.ValueInt64(), "portUuid": rd.PortUUID.ValueString(),
+				"preId": rd.PreID.ValueInt64(), "dnsv6": rd.DNSv6.ValueString(),
+			}
+		}
+		if !iv.RA.IsNull() && !iv.RA.IsUnknown() {
+			var ra ipv6RAModel
+			diags.Append(iv.RA.As(ctx, &ra, basetypes.ObjectAsOptions{UnhandledNullAsEmpty: true, UnhandledUnknownAsEmpty: true})...)
+			v6["ra"] = map[string]any{
+				"enable": ra.Enable.ValueBool(), "preference": ra.Preference.ValueInt64(),
+				"validLifetime": ra.ValidLifetime.ValueInt64(), "preferredLifetime": ra.PreferredLifetime.ValueInt64(),
+			}
+		}
+		f["lanNetworkIpv6Config"] = v6
 	}
 
 	dhcp := map[string]any{}
@@ -287,7 +437,9 @@ func (r *networkResource) apply(ctx context.Context, n *omada.Network, m *networ
 	m.DHCPL2Relay = types.BoolValue(n.DHCPL2Relay)
 	m.DHCPGuard = types.BoolValue(n.DHCPGuard.Enable)
 	m.DHCPv6Guard = types.BoolValue(n.DHCPv6Guard.Enable)
-	m.IPv6ConfigEnable = types.Int64Value(int64(n.IPv6Config.Enable))
+	ipv6, d := ipv6ObjectValue(n.IPv6Config)
+	diags.Append(d...)
+	m.IPv6 = ipv6
 
 	m.DHCPEnabled = types.BoolValue(n.DHCPSettings.Enable)
 	m.DHCPStart = types.StringValue(n.DHCPSettings.IPAddrStart)
