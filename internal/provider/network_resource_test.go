@@ -84,6 +84,83 @@ resource "omada_network" "test" {
 	})
 }
 
+// TestAccNetworkIPv6RDNSS drives create -> import -> update of the ipv6 nested
+// attribute in "Get from Prefix Delegation" mode (proto "rdnss"), including
+// changing pre_id -- the real scenario is two networks sharing one WAN
+// delegation via distinct pre_id values (e.g. 100 and 101).
+func TestAccNetworkIPv6RDNSS(t *testing.T) {
+	srv := newMockController(t)
+
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: testProviderConfigOpenAPI(srv.URL) + `
+resource "omada_network" "test" {
+  name           = "Lab"
+  vlan_id        = 40
+  gateway_subnet = "10.10.40.1/24"
+  interface_ids  = ["port-2", "port-3"]
+
+  ipv6 = {
+    enable = true
+    proto  = "rdnss"
+    rdnss = {
+      pre_type  = 1
+      port_uuid = "1_wan"
+      pre_id    = 101
+      dns_v6    = "auto"
+    }
+    ra = {
+      enable             = true
+      preference         = 1
+      valid_lifetime     = 86400
+      preferred_lifetime = 14400
+    }
+  }
+}`,
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("omada_network.test", "ipv6.enable", "true"),
+					resource.TestCheckResourceAttr("omada_network.test", "ipv6.proto", "rdnss"),
+					resource.TestCheckResourceAttr("omada_network.test", "ipv6.rdnss.pre_id", "101"),
+					resource.TestCheckResourceAttr("omada_network.test", "ipv6.rdnss.port_uuid", "1_wan"),
+					resource.TestCheckResourceAttr("omada_network.test", "ipv6.ra.valid_lifetime", "86400"),
+				),
+			},
+			{ResourceName: "omada_network.test", ImportState: true, ImportStateVerify: true},
+			{ // update: a second network would take pre_id 100 instead — exercise that change here
+				Config: testProviderConfigOpenAPI(srv.URL) + `
+resource "omada_network" "test" {
+  name           = "Lab"
+  vlan_id        = 40
+  gateway_subnet = "10.10.40.1/24"
+  interface_ids  = ["port-2", "port-3"]
+
+  ipv6 = {
+    enable = true
+    proto  = "rdnss"
+    rdnss = {
+      pre_type  = 1
+      port_uuid = "1_wan"
+      pre_id    = 100
+      dns_v6    = "auto"
+    }
+    ra = {
+      enable             = true
+      preference         = 1
+      valid_lifetime     = 86400
+      preferred_lifetime = 14400
+    }
+  }
+}`,
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("omada_network.test", "ipv6.rdnss.pre_id", "100"),
+				),
+			},
+		},
+	})
+}
+
 // TestAccNetworkCreateRequiresOpenAPI pins the error a practitioner meets when
 // they add a new network with only the admin credentials configured.
 //

@@ -294,7 +294,7 @@ preserved via read-modify-write.
 
 | Resource / data source | CRUD | Verified | Notes |
 |---|---|---|---|
-| `omada_network` | C/I/R/U/D | live | create goes through the Open API — see §5.1 |
+| `omada_network` | C/I/R/U/D | live | create goes through the Open API — see §5.1; `ipv6` nested attribute covers "Get from Prefix Delegation" (`proto = "rdnss"`) only — the other IPv6 Interface Type modes (DHCPv6, SLAAC+Stateless DHCP, Pass-Through) are unverified |
 | `omada_lan_dns` | CRUD | live | |
 | `omada_port_forward` | CRUD | live | |
 | `omada_ip_group` | CRUD | live | delete path is `/groups/{type}/{id}` |
@@ -619,6 +619,18 @@ These cannot be finished by writing code alone.
    other nested object wholesale, so any update touching one would drop the
    controller-owned keys inside it. It now merges by shape rather than by name,
    which fixes the nested objects nobody has hit yet as well.
+
+   **The `proto: 0` placeholder came back to matter once `ipv6` grew a real
+   `proto` field.** It was harmless while the provider only tracked
+   `ipv6_config_enable` (a bare int), but `NetworkIPv6Config.Proto` is a
+   `string` now — decoding a literal `0` into it fails. Rather than touch the
+   verified injection value, `NetworkIPv6Config.UnmarshalJSON` tolerates a
+   non-string `proto` by treating it as "no mode" (`""`), the same as it being
+   absent. Confirmed live: a network enabled via "Get from Prefix Delegation"
+   (SLAAC+RDNSS) reports `{"proto":"rdnss","enable":1,"rdnss":{...},"ra":{...}}`;
+   a disabled one reports only `{"enable":0}` — no `proto`, `rdnss`, or `ra` key
+   at all, matching what the controller UI itself produces when set to IPv6
+   Interface Type "None".
 
    `CreateNetwork` sends those five fields plus `gatewaySubnet`, then applies
    the rest of the configuration through the ordinary web-API update. That split

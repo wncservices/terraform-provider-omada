@@ -54,7 +54,7 @@ resource "omada_network" "iot" {
 - `gateway_subnet` (String) Gateway IP + subnet in CIDR, e.g. `10.10.30.1/24`. Only for `interface` networks.
 - `igmp_snoop_enable` (Boolean) IGMP snooping.
 - `interface_ids` (List of String) Gateway LAN interface IDs this network attaches to.
-- `ipv6_config_enable` (Number) IPv6 configuration mode for the network (0 = disabled).
+- `ipv6` (Attributes) IPv6 configuration for the network. Omitting `proto`/`rdnss`/`ra` and setting `enable = false` matches a disabled network exactly (the controller reports no other keys at all in that state). Only the "Get from Prefix Delegation" mode (`proto = "rdnss"`) is verified against a live controller; the other IPv6 Interface Type modes the UI offers (DHCPv6, SLAAC+Stateless DHCP, Pass-Through) use payload shapes this attribute does not model. (see [below for nested schema](#nestedatt--ipv6))
 - `isolation` (Boolean) Isolate this network from other LANs (guest isolation).
 - `mld_snoop_enable` (Boolean) MLD snooping (IPv6).
 - `portal_enable` (Boolean) Captive portal on this network.
@@ -80,6 +80,38 @@ Required:
 Optional:
 
 - `type` (Number) Option value type.
+
+
+<a id="nestedatt--ipv6"></a>
+### Nested Schema for `ipv6`
+
+Optional:
+
+- `enable` (Boolean) Whether IPv6 is enabled on this network.
+- `proto` (String) IPv6 mode. Only `"rdnss"` (SLAAC + RDNSS, prefix delegation) is verified.
+- `ra` (Attributes) Router Advertisement config that accompanies SLAAC. (see [below for nested schema](#nestedatt--ipv6--ra))
+- `rdnss` (Attributes) Prefix-delegation config, required when `proto = "rdnss"`. (see [below for nested schema](#nestedatt--ipv6--rdnss))
+
+<a id="nestedatt--ipv6--ra"></a>
+### Nested Schema for `ipv6.ra`
+
+Optional:
+
+- `enable` (Boolean)
+- `preference` (Number) RA preference; `1` (medium) observed live.
+- `preferred_lifetime` (Number) Preferred lifetime in seconds.
+- `valid_lifetime` (Number) Valid lifetime in seconds.
+
+
+<a id="nestedatt--ipv6--rdnss"></a>
+### Nested Schema for `ipv6.rdnss`
+
+Optional:
+
+- `dns_v6` (String) DNS handed out over RDNSS, e.g. `"auto"`.
+- `port_uuid` (String) WAN port ID the delegation comes from — see the `omada_wan` data source.
+- `pre_id` (Number) Sub-prefix ID this network takes from the delegation. Distinct networks need distinct IDs to each get their own /64.
+- `pre_type` (Number) Controller enum; `1` is the only value observed live and undocumented by TP-Link.
 
 ## Import
 
