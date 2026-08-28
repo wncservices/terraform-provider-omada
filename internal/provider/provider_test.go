@@ -2041,6 +2041,67 @@ func newMockController(t *testing.T) *httptest.Server {
 		}
 	})
 
+	// mDNS custom service profiles (/setting/profiles/mdns) — distinct from the
+	// reflector-rule collection at /setting/service/mdns. Seeded with a
+	// built-in so the test can assert the provider reports `defaultProfile`
+	// without trying to manage it. Create answers with the new id as a BARE
+	// STRING, same as service-type; update is PUT.
+	mdnsProfiles := map[string]map[string]any{
+		"buildIn-1": {"id": "buildIn-1", "name": "AirPlay", "defaultProfile": true,
+			"serviceId": []string{"_airplay._tcp.local", "_raop._tcp.local", "_appletv-v2._tcp.local"}},
+	}
+	mpNext := 1
+	const mpBase = "/abc123/api/v2/sites/site-1/setting/profiles/mdns"
+	mux.HandleFunc(mpBase, func(w http.ResponseWriter, r *http.Request) {
+		if !requireToken(w, r) {
+			return
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		switch r.Method {
+		case http.MethodPost:
+			var in map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&in)
+			id := fmt.Sprintf("mp-%d", mpNext)
+			mpNext++
+			in["id"] = id
+			in["defaultProfile"] = false
+			mdnsProfiles[id] = in
+			writeEnvelope(w, 0, "", id)
+		default:
+			data := make([]map[string]any, 0, len(mdnsProfiles))
+			for _, v := range mdnsProfiles {
+				data = append(data, v)
+			}
+			writeEnvelope(w, 0, "", map[string]any{
+				"totalRows": len(data), "currentPage": 1, "currentSize": 100, "data": data,
+				"mdnsCustomCurrentProfileNum": len(mdnsProfiles) - 1, "mdnsCustomMaxProfileNum": 5,
+			})
+		}
+	})
+	mux.HandleFunc(mpBase+"/", func(w http.ResponseWriter, r *http.Request) {
+		if !requireToken(w, r) {
+			return
+		}
+		id := strings.TrimPrefix(r.URL.Path, mpBase+"/")
+		mu.Lock()
+		defer mu.Unlock()
+		switch r.Method {
+		case http.MethodDelete:
+			delete(mdnsProfiles, id)
+			writeEnvelope(w, 0, "", nil)
+		case http.MethodPut:
+			var in map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&in)
+			in["id"] = id
+			in["defaultProfile"] = false
+			mdnsProfiles[id] = in
+			writeEnvelope(w, 0, "", in)
+		default:
+			writeEnvelope(w, -1600, "Unsupported request path.", nil)
+		}
+	})
+
 	// QoS bandwidth control. Two controller behaviours matter and are both
 	// reproduced: one rule per WAN port (-43310 for a second), and a create
 	// that returns a NULL result, so the client must resolve the new rule by
