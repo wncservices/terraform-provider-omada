@@ -15,10 +15,15 @@ import (
 // Referenced by id from MDNSAPCfg.ProfileIDs, alongside the controller's
 // read-only built-ins ("buildIn-1" .. "buildIn-10").
 //
-// Verified against a live v6.2 controller (/setting/profiles/mdns, distinct
-// from the reflector-rule collection at /setting/service/mdns). Create
-// answers with the new id as a bare string, same as ServiceType; update is
-// PUT.
+// The read shape and update verb are verified against a live v6.2 controller
+// (/setting/profiles/mdns, distinct from the reflector-rule collection at
+// /setting/service/mdns); update is PUT. Create was NOT verified before
+// shipping — it was assumed to answer a bare id string, matching
+// ServiceType. It doesn't: the real controller answers the created object,
+// and the wrong decode target left an orphaned profile on a live site (the
+// POST succeeded server-side; the client crashed decoding the response, so
+// Terraform never recorded it and retried on the next apply, hitting -33756
+// "already exists"). See CreateMDNSProfile.
 //
 // The controller caps the number of CUSTOM profiles per site — 5 on the
 // hardware this was developed against, reported back as
@@ -56,15 +61,21 @@ func (c *Client) GetMDNSProfile(ctx context.Context, siteID, id string) (*MDNSPr
 }
 
 // CreateMDNSProfile creates a custom mDNS profile and returns its id.
+//
+// Unlike ServiceType, the response here is the created object, not a bare id
+// string (see the MDNSProfile doc comment for how that was found out). Fall
+// back to resolving by name regardless, the same as a null/empty response —
+// cheap insurance against this decoding correctly but some other field
+// mismatch leaving ID empty.
 func (c *Client) CreateMDNSProfile(ctx context.Context, siteID string, p MDNSProfile) (string, error) {
 	p.ID = ""
 	p.Default = false
-	var id createIDResult
-	if err := c.Do(ctx, http.MethodPost, mdnsProfilePath(siteID), p, &id); err != nil {
+	var created MDNSProfile
+	if err := c.Do(ctx, http.MethodPost, mdnsProfilePath(siteID), p, &created); err != nil {
 		return "", fmt.Errorf("creating mdns profile: %w", err)
 	}
-	if id != "" {
-		return id, nil
+	if created.ID != "" {
+		return created.ID, nil
 	}
 	items, err := c.ListMDNSProfiles(ctx, siteID)
 	if err != nil {

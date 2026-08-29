@@ -2092,7 +2092,9 @@ func newMockController(t *testing.T) *httptest.Server {
 			in["id"] = id
 			in["defaultProfile"] = false
 			mdnsProfiles[id] = in
-			writeEnvelope(w, 0, "", id)
+			// Unlike service-type, the real controller answers the created
+			// object here, not a bare id string — see CreateMDNSProfile.
+			writeEnvelope(w, 0, "", in)
 		default:
 			data := make([]map[string]any, 0, len(mdnsProfiles))
 			for _, v := range mdnsProfiles {
