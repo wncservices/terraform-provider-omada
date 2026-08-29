@@ -134,11 +134,14 @@ secret changed outside Terraform will not show up as drift.
 
 What this provider deliberately does not do, or cannot yet:
 
-- **WAN settings are read-only** (the `omada_wan` data source). That document
-  mixes configuration with read-only capability flags, its write verbs are
-  undocumented, and it is the one object that cannot be validated with a
-  throwaway — the only WAN is the live one, and a bad write disconnects the
-  site. Read it here; change it in the controller UI.
+- **WAN settings are mostly read-only** (the `omada_wan` data source). That
+  document mixes configuration with read-only capability flags, its write
+  verbs are undocumented, and it is the one object that cannot be validated
+  with a throwaway — the only WAN is the live one, and a bad write disconnects
+  the site. Read it here; change it in the controller UI. The one exception is
+  `omada_wan_ipv6` — a narrowly-scoped write path for a WAN port's IPv6
+  connection settings, whose write verb is inferred rather than validated
+  live; see its own docs before using it.
 - **A gateway's physical ports are not managed** by `omada_gateway`, for the same
   reason. Use the scoped resources — port forwarding, disable-NAT, firewall —
   which change one thing at a time and are legible in a plan.
