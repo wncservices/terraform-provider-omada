@@ -758,24 +758,49 @@ func newMockController(t *testing.T) *httptest.Server {
 		}
 	})
 
-	// WAN settings (read-only): the real payload mixes config with a large set of
-	// read-only support* capability flags, which the data source must ignore.
-	mux.HandleFunc("/abc123/api/v2/sites/site-1/setting/wan/networks", func(w http.ResponseWriter, r *http.Request) {
+	// WAN settings. The real payload mixes config with a large set of read-only
+	// support* capability flags, which the data source must ignore. Stateful
+	// (unlike most of this mock's read-only siblings) so omada_wan_ipv6's PATCH
+	// can be exercised end to end: the item path replaces wanPortIpv6Setting only,
+	// leaving wanPortIpv4Setting/wanPortMacSetting untouched, mirroring
+	// UpdateWANIPv6Setting's read-modify-write.
+	wanPort := map[string]any{
+		"portUuid": "wan-1", "portName": "WAN/LAN1",
+		"wanPortIpv4Setting": map[string]any{
+			"proto": "dhcp", "protoType": 0, "vlanId": 0, "qosTagEnable": false,
+			"ipv4Dhcp": map[string]any{"unicast": false, "mtu": 1500},
+		},
+		"wanPortIpv6Setting": map[string]any{"portUuid": "wan-1", "enable": 0},
+		"wanPortMacSetting":  map[string]any{"method": "recover", "mac": "AA-BB-CC-DD-EE-FF"},
+	}
+	const wanBase = "/abc123/api/v2/sites/site-1/setting/wan/networks"
+	mux.HandleFunc(wanBase, func(w http.ResponseWriter, r *http.Request) {
 		if !requireToken(w, r) {
 			return
 		}
+		mu.Lock()
+		defer mu.Unlock()
 		writeEnvelope(w, 0, "", map[string]any{
 			"supportPppoe": true, "supportIpv6": true, "portNum": 2,
-			"wanPortSettings": []map[string]any{{
-				"portUuid": "wan-1", "portName": "WAN/LAN1",
-				"wanPortIpv4Setting": map[string]any{
-					"proto": "dhcp", "protoType": 0, "vlanId": 0, "qosTagEnable": false,
-					"ipv4Dhcp": map[string]any{"unicast": false, "mtu": 1500},
-				},
-				"wanPortIpv6Setting": map[string]any{"enable": 0},
-				"wanPortMacSetting":  map[string]any{"method": "recover", "mac": "AA-BB-CC-DD-EE-FF"},
-			}},
+			"wanPortSettings": []map[string]any{wanPort},
 		})
+	})
+	mux.HandleFunc(wanBase+"/", func(w http.ResponseWriter, r *http.Request) {
+		if !requireToken(w, r) {
+			return
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		if r.Method != http.MethodPatch {
+			writeEnvelope(w, -1600, "Unsupported request path.", nil)
+			return
+		}
+		var in map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&in)
+		// UpdateWANIPv6Setting sends the WHOLE port document back (read-modify-
+		// write done client-side), so this only needs to accept it — no merge.
+		wanPort = in
+		writeEnvelope(w, 0, "", nil)
 	})
 
 	// Stateful captive-portal store. Like the real controller: the list result is

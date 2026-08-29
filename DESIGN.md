@@ -334,6 +334,7 @@ preserved via read-modify-write.
 | `omada_sites` (data) | R | live | |
 | `omada_networks` (data) | R | live | |
 | `omada_wan` (data) | R | live | **read-only by design** — see §5.4 |
+| `omada_wan_ipv6` | CRUD (adopt-only) | **read live, writes inferred** | narrow exception to "Writable WAN" — see §5.3; models only `wanPortIpv6Setting`, leaves IPv4/MAC untouched |
 | `omada_port_forwards` (data) | R | mock | discovery — list rules + IDs |
 | `omada_firewall_acls` (data) | R | mock | discovery — lists all ACL types |
 | `omada_devices` (data) | R | live | inventory — gateways/switches/APs |
@@ -716,11 +717,22 @@ that shape rather than inventing a third.
   (logo, colours, terms, **background image**) is preserved but not manageable.
   A background needs a multipart upload to `/setting/portals/media`, captured
   from the UI.
-- **Writable WAN** stays a deliberate non-goal: `/setting/wan/networks` mixes
-  config with read-only `support*` flags, its write verbs are undocumented, and
-  unlike every other endpoint the write path **cannot be validated with a
+- **Writable WAN** stays a deliberate non-goal in general: `/setting/wan/networks`
+  mixes config with read-only `support*` flags, its write verbs are undocumented,
+  and unlike every other endpoint the write path **cannot be validated with a
   throwaway** — the only WAN is the live one. If attempted, do it with
   out-of-band access, in a window, modelling a narrow subset.
+
+  **`omada_wan_ipv6`** is that narrow subset, attempted exactly this way: it
+  models only `wanPortIpv6Setting` (confirmed live to be a clean sub-object,
+  not mixed with `support*` flags the way the WAN document as a whole is) and
+  read-modify-writes the full port document so `wanPortIpv4Setting` /
+  `wanPortMacSetting` are never touched. Unlike `omada_vpn`'s inferred verb,
+  which really has never been exercised, this one at least has a confirmed
+  read path and a plausible verb by convention (`PATCH` to the item path,
+  matching `UpdateNetwork`) — but the write itself is genuinely unconfirmed.
+  Import an existing port and verify a no-op plan before trusting it further,
+  the same advice the resource docs give a practitioner.
 
 ### 5.4 Read-only surfaces worth a data source
 
