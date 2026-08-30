@@ -63,7 +63,7 @@ func (d *portForwardsDataSource) Schema(_ context.Context, _ datasource.SchemaRe
 						"id":            schema.StringAttribute{Computed: true, MarkdownDescription: "The rule ID (use this to import `omada_port_forward`)."},
 						"name":          schema.StringAttribute{Computed: true, MarkdownDescription: "The rule name."},
 						"enabled":       schema.BoolAttribute{Computed: true, MarkdownDescription: "Whether the rule is enabled."},
-						"protocol":      schema.Int64Attribute{Computed: true, MarkdownDescription: "Protocol: 1=TCP, 2=UDP, 3=TCP+UDP."},
+						"protocol":      schema.Int64Attribute{Computed: true, MarkdownDescription: "Protocol: 0=TCP+UDP, 1=TCP, 2=UDP."},
 						"external_port": schema.StringAttribute{Computed: true, MarkdownDescription: "External port or range."},
 						"forward_ip":    schema.StringAttribute{Computed: true, MarkdownDescription: "Internal destination IP."},
 						"forward_port":  schema.StringAttribute{Computed: true, MarkdownDescription: "Internal destination port or range."},

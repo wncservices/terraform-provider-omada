@@ -54,6 +54,17 @@ resource "omada_port_forward" "https" {
 					resource.TestCheckResourceAttr("omada_port_forward.https", "protocol", "udp"),
 				),
 			},
+			{ // update: switch to tcp_udp (issue #58 — controller rejects protocol=3)
+				Config: testProviderConfig(srv.URL) + `
+resource "omada_port_forward" "https" {
+  name          = "Homelab"
+  external_port = "443"
+  forward_ip    = "10.10.20.95"
+  forward_port  = "8443"
+  protocol      = "tcp_udp"
+}`,
+				Check: resource.TestCheckResourceAttr("omada_port_forward.https", "protocol", "tcp_udp"),
+			},
 		},
 	})
 }
