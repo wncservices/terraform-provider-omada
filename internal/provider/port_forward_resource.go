@@ -48,8 +48,8 @@ type portForwardResourceModel struct {
 	DMZ          types.Bool   `tfsdk:"dmz"`
 }
 
-var protoToInt = map[string]int{"tcp": 1, "udp": 2, "tcp_udp": 3}
-var protoToStr = map[int]string{1: "tcp", 2: "udp", 3: "tcp_udp"}
+var protoToInt = map[string]int{"tcp_udp": 0, "tcp": 1, "udp": 2}
+var protoToStr = map[int]string{0: "tcp_udp", 1: "tcp", 2: "udp"}
 
 func (r *portForwardResource) Metadata(_ context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
 	resp.TypeName = req.ProviderTypeName + "_port_forward"

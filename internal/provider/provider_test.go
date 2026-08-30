@@ -308,6 +308,10 @@ func newMockController(t *testing.T) *httptest.Server {
 		case http.MethodPost:
 			var in map[string]any
 			_ = json.NewDecoder(r.Body).Decode(&in)
+			if !validPortForwardProtocol(in["protocol"]) {
+				writeEnvelope(w, -1001, "must be between 0 and 2", nil)
+				return
+			}
 			id := fmt.Sprintf("pf-%d", pfNext)
 			pfNext++
 			in["id"] = id
@@ -335,6 +339,10 @@ func newMockController(t *testing.T) *httptest.Server {
 		default: // PUT
 			var in map[string]any
 			_ = json.NewDecoder(r.Body).Decode(&in)
+			if !validPortForwardProtocol(in["protocol"]) {
+				writeEnvelope(w, -1001, "must be between 0 and 2", nil)
+				return
+			}
 			in["id"] = id
 			pf[id] = in
 			writeEnvelope(w, 0, "", in)
@@ -2301,6 +2309,13 @@ func rawStore(t *testing.T, base, kind string) map[string]map[string]any {
 		t.Fatalf("debug decode: %v", err)
 	}
 	return out
+}
+
+// validPortForwardProtocol mirrors the live controller's "must be between 0
+// and 2" range check on protocol (0=TCP+UDP, 1=TCP, 2=UDP) — see issue #58.
+func validPortForwardProtocol(v any) bool {
+	n, ok := v.(float64)
+	return ok && n >= 0 && n <= 2
 }
 
 func writeEnvelope(w http.ResponseWriter, code int, msg string, result any) {

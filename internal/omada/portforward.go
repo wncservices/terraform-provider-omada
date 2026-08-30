@@ -21,7 +21,7 @@ type PortForward struct {
 	ExternalPort  string   `json:"externalPort"`
 	ForwardIP     string   `json:"forwardIp"`
 	ForwardPort   string   `json:"forwardPort"`
-	Protocol      int      `json:"protocol"` // 1=TCP, 2=UDP, 3=TCP+UDP
+	Protocol      int      `json:"protocol"` // 0=TCP+UDP, 1=TCP, 2=UDP
 	DMZ           bool     `json:"dMZ"`
 }
 

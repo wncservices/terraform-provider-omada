@@ -44,4 +44,4 @@ Read-Only:
 - `forward_port` (String) Internal destination port or range.
 - `id` (String) The rule ID (use this to import `omada_port_forward`).
 - `name` (String) The rule name.
-- `protocol` (Number) Protocol: 1=TCP, 2=UDP, 3=TCP+UDP.
+- `protocol` (Number) Protocol: 0=TCP+UDP, 1=TCP, 2=UDP.
