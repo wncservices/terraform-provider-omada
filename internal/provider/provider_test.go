@@ -2077,8 +2077,8 @@ func newMockController(t *testing.T) *httptest.Server {
 	// mDNS custom service profiles (/setting/profiles/mdns) — distinct from the
 	// reflector-rule collection at /setting/service/mdns. Seeded with a
 	// built-in so the test can assert the provider reports `defaultProfile`
-	// without trying to manage it. Create answers with the new id as a BARE
-	// STRING, same as service-type; update is PUT.
+	// without trying to manage it. Create answers {"profileId": "..."};
+	// update is PATCH to the item path.
 	mdnsProfiles := map[string]map[string]any{
 		"buildIn-1": {"id": "buildIn-1", "name": "AirPlay", "defaultProfile": true,
 			"serviceId": []string{"_airplay._tcp.local", "_raop._tcp.local", "_appletv-v2._tcp.local"}},
@@ -2100,9 +2100,9 @@ func newMockController(t *testing.T) *httptest.Server {
 			in["id"] = id
 			in["defaultProfile"] = false
 			mdnsProfiles[id] = in
-			// Unlike service-type, the real controller answers the created
-			// object here, not a bare id string — see CreateMDNSProfile.
-			writeEnvelope(w, 0, "", in)
+			// Neither service-type's bare id string nor the created object —
+			// see CreateMDNSProfile.
+			writeEnvelope(w, 0, "", map[string]any{"profileId": id})
 		default:
 			data := make([]map[string]any, 0, len(mdnsProfiles))
 			for _, v := range mdnsProfiles {
@@ -2125,7 +2125,7 @@ func newMockController(t *testing.T) *httptest.Server {
 		case http.MethodDelete:
 			delete(mdnsProfiles, id)
 			writeEnvelope(w, 0, "", nil)
-		case http.MethodPut:
+		case http.MethodPatch:
 			var in map[string]any
 			_ = json.NewDecoder(r.Body).Decode(&in)
 			in["id"] = id

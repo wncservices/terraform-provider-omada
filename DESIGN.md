@@ -302,7 +302,7 @@ preserved via read-modify-write.
 | `omada_firewall_acl` | CRUD | live | ACL type auto-discovered on import; custom ports/devices sent empty (§5.3) |
 | `omada_wlan_group` | CRUD | live | |
 | `omada_mdns_reflector` | CRUD | live | |
-| `omada_mdns_profile` | CRUD | live · create was shipped unverified, see §5.3 | separate collection (`/setting/profiles/mdns`) from the reflector rules; controller caps custom profiles per site (5 on dev hardware), reported as `mdnsCustomMaxProfileNum` |
+| `omada_mdns_profile` | CRUD | live, see §5.3 | separate collection (`/setting/profiles/mdns`) from the reflector rules; controller caps custom profiles per site (5 on dev hardware), reported as `mdnsCustomMaxProfileNum` |
 | `omada_port_profile` | CRUD | live · subset | STP block deep-merged |
 | `omada_wireless_network` | CRUD | live · subset | `psk` write-only |
 | `omada_static_route` | CRUD | live | update is `PUT` (`PATCH` → `-1600`) |
@@ -703,24 +703,11 @@ that shape rather than inventing a third.
 
 ### 5.3 Breadth inside resources that already exist
 
-- **`omada_mdns_profile.Create` shipped with an unverified assumption, and it
-  cost a real apply.** Its doc comment claimed create "answers with the new id
-  as a bare string, same as ServiceType" — plausible by analogy, covered by a
-  mock built to match that same assumption, and never actually exercised
-  against a live controller before merging. It was wrong: the real response is
-  the created object. The client crashed decoding it as a string, so
-  Terraform never recorded the resource — but the POST had already succeeded
-  server-side. Every following apply retried the create from scratch and hit
-  `-33756 "This Bonjour Service name already exists"` against the orphan,
-  silently blocking three merges (each showing `errored` in the TFC run list,
-  which went unnoticed until someone asked why a declared resource wasn't
-  live). The lesson isn't "always live-test everything" — `omada_vpn` and now
-  `omada_wan_ipv6` ship with inferred writes deliberately, clearly labeled.
-  It's that an inferred assumption modeled on a *different* endpoint's
-  behavior needs the same label those get, not a confident "same as X" in the
-  doc comment. And a mock written to match the assumption being tested proves
-  nothing about whether the assumption is correct — it only proves the code
-  does what its author expected, which is not the question that matters here.
+- **`omada_mdns_profile`**: create answers `{"profileId": "..."}`; update is
+  `PATCH` to the item path (`PUT`, and `PATCH` to the base path, both
+  `-1600`); delete is `DELETE` to the item path. None of this matches
+  `ServiceType`'s convention on the same `/setting/profiles/*` family —
+  don't assume a sibling endpoint's shape without checking.
 - **`omada_site_settings`** models ~45 fields of a large object. Add more the
   same table-driven way. Note `remoteLog` holds only `{enable}` while remote
   logging is off — the syslog server fields appear once enabled, so pinning
