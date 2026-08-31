@@ -635,13 +635,22 @@ func newMockController(t *testing.T) *httptest.Server {
 		case http.MethodPost:
 			var in map[string]any
 			_ = json.NewDecoder(r.Body).Decode(&in)
-			// The real controller rejects a create whose payload omits
-			// rateLimit entirely; mirror that so a regression back to an
+			// The real controller rejects a create whose payload omits any of
+			// these sub-objects; mirror that so a regression back to an
 			// undefaulted schema attribute fails the test instead of
-			// silently passing.
-			if in["rateLimit"] == nil {
-				writeEnvelope(w, -1001, "rateLimit should not be null", nil)
-				return
+			// silently passing. rateLimit's message is confirmed live; the
+			// other three are the same ssidDeepKeys shape, checked the same
+			// way, message unconfirmed (the controller answered a generic
+			// "-1001 Invalid request parameters" for those live).
+			for _, key := range []string{"rateLimit", "ssidRateLimit", "rateAndBeaconCtrl", "dhcpOption82"} {
+				if in[key] == nil {
+					msg := "Invalid request parameters."
+					if key == "rateLimit" {
+						msg = "rateLimit should not be null"
+					}
+					writeEnvelope(w, -1001, msg, nil)
+					return
+				}
 			}
 			id := fmt.Sprintf("ssid-%d", ssidNext)
 			ssidNext++

@@ -132,20 +132,25 @@ func (r *wirelessResource) Schema(_ context.Context, _ resource.SchemaRequest, r
 			"psk_encryption": i("PSK encryption code."),
 			"psk_gik_rekey":  b("GIK rekeying."),
 
-			// Unlike the rest of the b()-generated fields, these two need a
-			// default: the controller rejects a create whose payload omits
-			// rateLimit entirely ("-1001 rateLimit should not be null"), which
-			// is what happens when neither field is set in config.
+			// These, and every field below through dhcp_option82_enable, feed
+			// a sub-object the controller requires present on create
+			// (rateLimit, ssidRateLimit, rateAndBeaconCtrl, dhcpOption82 —
+			// all in ssidDeepKeys). Unlike the rest of the b()-generated
+			// fields on this resource, they need a real default so there's
+			// something to send when unset in config; without one the
+			// controller rejects the create ("-1001 rateLimit should not be
+			// null", found live — the other three are the same shape, fixed
+			// preemptively rather than waiting for each to fail the same way).
 			"rate_limit_down_enable":      schema.BoolAttribute{Optional: true, Computed: true, Default: booldefault.StaticBool(false), MarkdownDescription: "Per-client download rate limit."},
 			"rate_limit_up_enable":        schema.BoolAttribute{Optional: true, Computed: true, Default: booldefault.StaticBool(false), MarkdownDescription: "Per-client upload rate limit."},
-			"ssid_rate_limit_down_enable": b("SSID-wide download rate limit."),
-			"ssid_rate_limit_up_enable":   b("SSID-wide upload rate limit."),
+			"ssid_rate_limit_down_enable": schema.BoolAttribute{Optional: true, Computed: true, Default: booldefault.StaticBool(false), MarkdownDescription: "SSID-wide download rate limit."},
+			"ssid_rate_limit_up_enable":   schema.BoolAttribute{Optional: true, Computed: true, Default: booldefault.StaticBool(false), MarkdownDescription: "SSID-wide upload rate limit."},
 
-			"rate_ctrl_2g":   b("Rate control on 2.4GHz."),
-			"rate_ctrl_5g":   b("Rate control on 5GHz."),
-			"rate_ctrl_6g":   b("Rate control on 6GHz."),
-			"manage_rate_2g": b("Management rate control on 2.4GHz."),
-			"manage_rate_5g": b("Management rate control on 5GHz."),
+			"rate_ctrl_2g":   schema.BoolAttribute{Optional: true, Computed: true, Default: booldefault.StaticBool(false), MarkdownDescription: "Rate control on 2.4GHz."},
+			"rate_ctrl_5g":   schema.BoolAttribute{Optional: true, Computed: true, Default: booldefault.StaticBool(false), MarkdownDescription: "Rate control on 5GHz."},
+			"rate_ctrl_6g":   schema.BoolAttribute{Optional: true, Computed: true, Default: booldefault.StaticBool(false), MarkdownDescription: "Rate control on 6GHz."},
+			"manage_rate_2g": schema.BoolAttribute{Optional: true, Computed: true, Default: booldefault.StaticBool(false), MarkdownDescription: "Management rate control on 2.4GHz."},
+			"manage_rate_5g": schema.BoolAttribute{Optional: true, Computed: true, Default: booldefault.StaticBool(false), MarkdownDescription: "Management rate control on 5GHz."},
 
 			"multicast_enable":       b("Multicast/broadcast forwarding."),
 			"multicast_channel_util": i("Channel utilisation threshold."),
@@ -153,7 +158,7 @@ func (r *wirelessResource) Schema(_ context.Context, _ resource.SchemaRequest, r
 			"multicast_ipv6_cast":    b("IPv6 multicast conversion."),
 			"multicast_filter":       b("Multicast filtering."),
 
-			"dhcp_option82_enable": b("DHCP option 82 insertion."),
+			"dhcp_option82_enable": schema.BoolAttribute{Optional: true, Computed: true, Default: booldefault.StaticBool(false), MarkdownDescription: "DHCP option 82 insertion."},
 		},
 	}
 }
