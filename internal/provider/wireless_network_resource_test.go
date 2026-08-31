@@ -126,6 +126,26 @@ resource "omada_wireless_network" "iot" {
 					checkVLANBinding(t, srv.URL, "net-40", 40),
 				),
 			},
+			{ // update omitting lan_network_id entirely — the controller's
+				// existing binding must carry over without Terraform seeing
+				// this as a provider-inconsistency error (the exact bug
+				// reported live: unmanaged existing SSIDs with no
+				// lan_network_id in config failed every apply once the
+				// attribute existed in the schema at all).
+				Config: testProviderConfig(srv.URL) + `
+resource "omada_wireless_network" "iot" {
+  wlan_group_id  = "grp-default"
+  name           = "IoT"
+  vlan_enable    = true
+  vlan_id        = 40
+  multicast_enable  = true
+  multicast_channel_util = 80
+}`,
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("omada_wireless_network.iot", "lan_network_id", "net-40"),
+					checkVLANBinding(t, srv.URL, "net-40", 40),
+				),
+			},
 		},
 	})
 }
