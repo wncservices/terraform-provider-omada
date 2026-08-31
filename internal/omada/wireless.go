@@ -42,8 +42,32 @@ type MultiCastSetting struct {
 	FilterEnable    bool `json:"filterEnable"`
 }
 
+// VLANCustomConfig names which LAN network (omada_network) an SSID's VLAN tag
+// bridges to. LANNetworkID is the load-bearing field; the rest mirror it back
+// in shapes the controller expects (confirmed live across three existing
+// SSIDs — WUT/WUT-IOT include BridgeVLAN, WUT-GUEST omits it, so it's
+// optional here too).
+type VLANCustomConfig struct {
+	CustomMode        int              `json:"customMode"`
+	LANNetworkID      string           `json:"lanNetworkId"`
+	LANNetworkVLANIDs map[string][]int `json:"lanNetworkVlanIds"`
+	BridgeVLAN        int              `json:"bridgeVlan,omitempty"`
+}
+
+// VLANSetting is the SSID-to-network VLAN binding. Without it, vlan_enable +
+// vlan_id alone are not enough for the controller to know which LAN network
+// the tag belongs to — this was the missing piece behind a bare "-1001
+// Invalid request parameters" on create with no field named. Mode/CustomMode
+// are controller enums; 1/0 are the only values observed live.
+type VLANSetting struct {
+	Mode           int              `json:"mode"`
+	CustomConfig   VLANCustomConfig `json:"customConfig"`
+	CurrentVLANID  int              `json:"currentVlanId"`
+	CurrentVLANIDs string           `json:"currentVlanIds"`
+}
+
 // WirelessNetwork is a wireless SSID within a WLAN group. Verified against a
-// live v6.2 controller. Complex/derived sub-objects (vlanSetting, loadBalance,
+// live v6.2 controller. Complex/derived sub-objects (loadBalance,
 // featureDescription) are not modelled and are preserved on update.
 type WirelessNetwork struct {
 	ID         string `json:"id"`
@@ -72,6 +96,7 @@ type WirelessNetwork struct {
 	SSIDRateLimit    LimitToggles     `json:"ssidRateLimit"`
 	RateBeaconCtrl   RateBeaconCtrl   `json:"rateAndBeaconCtrl"`
 	MultiCastSetting MultiCastSetting `json:"multiCastSetting"`
+	VLANSetting      VLANSetting      `json:"vlanSetting"`
 	DHCPOption82     struct {
 		DhcpEnable bool `json:"dhcpEnable"`
 	} `json:"dhcpOption82"`
@@ -101,7 +126,7 @@ func (c *Client) GetSSID(ctx context.Context, siteID, groupID, id string) (*Wire
 }
 
 // ssidDeepKeys are sub-objects that must be merged, never replaced.
-var ssidDeepKeys = []string{"pskSetting", "rateLimit", "ssidRateLimit", "rateAndBeaconCtrl", "multiCastSetting", "dhcpOption82"}
+var ssidDeepKeys = []string{"pskSetting", "rateLimit", "ssidRateLimit", "rateAndBeaconCtrl", "multiCastSetting", "dhcpOption82", "vlanSetting"}
 
 // CreateSSID creates an SSID (null result → resolved by name). psk, if given,
 // is placed under pskSetting.securityKey.

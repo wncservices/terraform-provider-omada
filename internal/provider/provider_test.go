@@ -652,6 +652,12 @@ func newMockController(t *testing.T) *httptest.Server {
 					return
 				}
 			}
+			// Confirmed live: vlanEnable without vlanSetting (which is where
+			// the bound omada_network id lives) fails the same generic way.
+			if vlanEnable, _ := in["vlanEnable"].(bool); vlanEnable && in["vlanSetting"] == nil {
+				writeEnvelope(w, -1001, "Invalid request parameters.", nil)
+				return
+			}
 			id := fmt.Sprintf("ssid-%d", ssidNext)
 			ssidNext++
 			in["id"] = id
