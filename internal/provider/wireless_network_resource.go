@@ -31,18 +31,19 @@ func NewWirelessNetworkResource() resource.Resource { return &wirelessResource{}
 type wirelessResource struct{ data *providerData }
 
 type wirelessResourceModel struct {
-	ID          types.String `tfsdk:"id"`
-	Site        types.String `tfsdk:"site"`
-	SiteID      types.String `tfsdk:"site_id"`
-	WLANGroupID types.String `tfsdk:"wlan_group_id"`
-	Name        types.String `tfsdk:"name"`
-	Band        types.Int64  `tfsdk:"band"`
-	Security    types.Int64  `tfsdk:"security"`
-	PSK         types.String `tfsdk:"psk"`
-	Broadcast   types.Bool   `tfsdk:"broadcast"`
-	VLANEnable  types.Bool   `tfsdk:"vlan_enable"`
-	VLANID      types.Int64  `tfsdk:"vlan_id"`
-	GuestNet    types.Bool   `tfsdk:"guest_net"`
+	ID           types.String `tfsdk:"id"`
+	Site         types.String `tfsdk:"site"`
+	SiteID       types.String `tfsdk:"site_id"`
+	WLANGroupID  types.String `tfsdk:"wlan_group_id"`
+	Name         types.String `tfsdk:"name"`
+	Band         types.Int64  `tfsdk:"band"`
+	Security     types.Int64  `tfsdk:"security"`
+	PSK          types.String `tfsdk:"psk"`
+	Broadcast    types.Bool   `tfsdk:"broadcast"`
+	VLANEnable   types.Bool   `tfsdk:"vlan_enable"`
+	VLANID       types.Int64  `tfsdk:"vlan_id"`
+	LANNetworkID types.String `tfsdk:"lan_network_id"`
+	GuestNet     types.Bool   `tfsdk:"guest_net"`
 
 	PortalEnable       types.Bool  `tfsdk:"portal_enable"`
 	AccessEnable       types.Bool  `tfsdk:"access_enable"`
@@ -114,8 +115,16 @@ func (r *wirelessResource) Schema(_ context.Context, _ resource.SchemaRequest, r
 			},
 			"broadcast":   schema.BoolAttribute{Optional: true, Computed: true, Default: booldefault.StaticBool(true), MarkdownDescription: "Whether the SSID is broadcast (visible)."},
 			"vlan_enable": schema.BoolAttribute{Optional: true, Computed: true, Default: booldefault.StaticBool(false), MarkdownDescription: "Whether the SSID is tagged to a VLAN."},
-			"vlan_id":     schema.Int64Attribute{Optional: true, Computed: true, Default: int64default.StaticInt64(1), MarkdownDescription: "VLAN ID when vlan_enable is true."},
-			"guest_net":   schema.BoolAttribute{Optional: true, Computed: true, Default: booldefault.StaticBool(false), MarkdownDescription: "Whether this is a guest network."},
+			"vlan_id":     schema.Int64Attribute{Optional: true, Computed: true, Default: int64default.StaticInt64(1), MarkdownDescription: "VLAN ID when vlan_enable is true. Must match the VLAN ID configured on `lan_network_id`."},
+			// Required whenever vlan_enable is true: the controller binds an
+			// SSID's VLAN tag to a specific omada_network, not a bare number.
+			// Without it, create fails "-1001 Invalid request parameters"
+			// with no field named — found live, not documented anywhere.
+			// Existing (adopted) SSIDs work without setting this because the
+			// controller's own binding is preserved on update; a fresh create
+			// has nothing to preserve.
+			"lan_network_id": schema.StringAttribute{Optional: true, MarkdownDescription: "The `omada_network` (LAN network) id this SSID's VLAN tag binds to. Required when `vlan_enable = true` on create."},
+			"guest_net":      schema.BoolAttribute{Optional: true, Computed: true, Default: booldefault.StaticBool(false), MarkdownDescription: "Whether this is a guest network."},
 
 			"portal_enable":        b("Captive portal on this SSID."),
 			"access_enable":        b("Access control."),
@@ -199,6 +208,21 @@ func (r *wirelessResource) fields(m wirelessResourceModel) map[string]any {
 	pi := func(k string, v types.Int64) {
 		if !v.IsNull() && !v.IsUnknown() {
 			f[k] = v.ValueInt64()
+		}
+	}
+	if !m.LANNetworkID.IsNull() && m.LANNetworkID.ValueString() != "" {
+		netID := m.LANNetworkID.ValueString()
+		vlanID := int(m.VLANID.ValueInt64())
+		f["vlanSetting"] = map[string]any{
+			"mode": 1,
+			"customConfig": map[string]any{
+				"customMode":        0,
+				"lanNetworkId":      netID,
+				"lanNetworkVlanIds": map[string]any{netID: []int{vlanID}},
+				"bridgeVlan":        vlanID,
+			},
+			"currentVlanId":  vlanID,
+			"currentVlanIds": fmt.Sprintf("%d", vlanID),
 		}
 	}
 	pb("portalEnable", m.PortalEnable)
@@ -333,6 +357,10 @@ func (r *wirelessResource) apply(w *omada.WirelessNetwork, m *wirelessResourceMo
 	m.MulticastFilter = types.BoolValue(w.MultiCastSetting.FilterEnable)
 
 	m.DHCPOption82Enable = types.BoolValue(w.DHCPOption82.DhcpEnable)
+
+	if id := w.VLANSetting.CustomConfig.LANNetworkID; id != "" {
+		m.LANNetworkID = types.StringValue(id)
+	}
 }
 
 func (r *wirelessResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
@@ -341,6 +369,13 @@ func (r *wirelessResource) Create(ctx context.Context, req resource.CreateReques
 	// `psk` is write-only, so it is null in the plan; read it from config.
 	resp.Diagnostics.Append(req.Config.Get(ctx, &cfg)...)
 	if resp.Diagnostics.HasError() {
+		return
+	}
+	if plan.VLANEnable.ValueBool() && (plan.LANNetworkID.IsNull() || plan.LANNetworkID.ValueString() == "") {
+		resp.Diagnostics.AddAttributeError(path.Root("lan_network_id"), "Missing lan_network_id",
+			"lan_network_id is required when vlan_enable is true: the controller binds an SSID's VLAN tag to "+
+				"a specific network, not a bare VLAN number, and a fresh create has no existing binding to fall "+
+				"back to.")
 		return
 	}
 	siteID, err := r.data.client.ResolveSiteID(ctx, r.siteName(plan))

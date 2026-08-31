@@ -44,6 +44,7 @@ resource "omada_wireless_network" "iot" {
 - `enable_11r` (Boolean) 802.11r fast roaming.
 - `guest_net` (Boolean) Whether this is a guest network.
 - `hide_pwd` (Boolean) Hide the password in the UI.
+- `lan_network_id` (String) The `omada_network` (LAN network) id this SSID's VLAN tag binds to. Required when `vlan_enable = true` on create.
 - `mac_filter_enable` (Boolean) MAC filtering.
 - `manage_rate_2g` (Boolean) Management rate control on 2.4GHz.
 - `manage_rate_5g` (Boolean) Management rate control on 5GHz.
@@ -70,7 +71,7 @@ resource "omada_wireless_network" "iot" {
 - `ssid_rate_limit_down_enable` (Boolean) SSID-wide download rate limit.
 - `ssid_rate_limit_up_enable` (Boolean) SSID-wide upload rate limit.
 - `vlan_enable` (Boolean) Whether the SSID is tagged to a VLAN.
-- `vlan_id` (Number) VLAN ID when vlan_enable is true.
+- `vlan_id` (Number) VLAN ID when vlan_enable is true. Must match the VLAN ID configured on `lan_network_id`.
 - `wan_access` (Boolean) Allow WAN access from this SSID.
 - `wlan_schedule_enable` (Boolean) SSID schedule.
 

@@ -304,7 +304,7 @@ preserved via read-modify-write.
 | `omada_mdns_reflector` | CRUD | live | |
 | `omada_mdns_profile` | CRUD | live, see §5.3 | separate collection (`/setting/profiles/mdns`) from the reflector rules; controller caps custom profiles per site (5 on dev hardware), reported as `mdnsCustomMaxProfileNum` |
 | `omada_port_profile` | CRUD | live · subset | STP block deep-merged |
-| `omada_wireless_network` | CRUD | live · subset | `psk` write-only |
+| `omada_wireless_network` | CRUD | live · subset | `psk` write-only; `vlan_enable` needs `lan_network_id` — see §5.3 |
 | `omada_static_route` | CRUD | live | update is `PUT` (`PATCH` → `-1600`) |
 | `omada_portal` | CRUD | live · subset | write-only `password`; bare-array list; PATCH RMW |
 | `omada_vpn` | CRUD | **read live, writes inferred** | see §5.2 |
@@ -714,6 +714,13 @@ that shape rather than inventing a third.
   `remote_log_port` today can diff against a controller that omits it.
 - **`omada_wireless_network`** and **`omada_port_profile`** model practical
   subsets. Unmodelled fields are preserved by read-modify-write, never blanked.
+  One exception: `vlan_enable` needs `lan_network_id` (the bound
+  `omada_network` id) on create — `vlanSetting` binds an SSID's VLAN tag to a
+  network object, not a bare number, and "preserved on update" only helps
+  once that binding already exists. Confirmed live: `rateLimit`,
+  `ssidRateLimit`, `rateAndBeaconCtrl`, `dhcpOption82`, and `vlanSetting` all
+  fail a create that omits them, each a bare `-1001` with no field named
+  except `rateLimit`.
 - **`omada_vpn`** manages only `name`/`enable`, and its write verbs are
   **inferred** — the read shape is live-verified but create/update/delete were
   never exercised, because the validation environment's only VPN was removed. Prefer importing
