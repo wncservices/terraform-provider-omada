@@ -132,8 +132,12 @@ func (r *wirelessResource) Schema(_ context.Context, _ resource.SchemaRequest, r
 			"psk_encryption": i("PSK encryption code."),
 			"psk_gik_rekey":  b("GIK rekeying."),
 
-			"rate_limit_down_enable":      b("Per-client download rate limit."),
-			"rate_limit_up_enable":        b("Per-client upload rate limit."),
+			// Unlike the rest of the b()-generated fields, these two need a
+			// default: the controller rejects a create whose payload omits
+			// rateLimit entirely ("-1001 rateLimit should not be null"), which
+			// is what happens when neither field is set in config.
+			"rate_limit_down_enable":      schema.BoolAttribute{Optional: true, Computed: true, Default: booldefault.StaticBool(false), MarkdownDescription: "Per-client download rate limit."},
+			"rate_limit_up_enable":        schema.BoolAttribute{Optional: true, Computed: true, Default: booldefault.StaticBool(false), MarkdownDescription: "Per-client upload rate limit."},
 			"ssid_rate_limit_down_enable": b("SSID-wide download rate limit."),
 			"ssid_rate_limit_up_enable":   b("SSID-wide upload rate limit."),
 

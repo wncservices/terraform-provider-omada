@@ -635,6 +635,14 @@ func newMockController(t *testing.T) *httptest.Server {
 		case http.MethodPost:
 			var in map[string]any
 			_ = json.NewDecoder(r.Body).Decode(&in)
+			// The real controller rejects a create whose payload omits
+			// rateLimit entirely; mirror that so a regression back to an
+			// undefaulted schema attribute fails the test instead of
+			// silently passing.
+			if in["rateLimit"] == nil {
+				writeEnvelope(w, -1001, "rateLimit should not be null", nil)
+				return
+			}
 			id := fmt.Sprintf("ssid-%d", ssidNext)
 			ssidNext++
 			in["id"] = id
