@@ -123,7 +123,7 @@ func (r *wirelessResource) Schema(_ context.Context, _ resource.SchemaRequest, r
 			// Existing (adopted) SSIDs work without setting this because the
 			// controller's own binding is preserved on update; a fresh create
 			// has nothing to preserve.
-			"lan_network_id": schema.StringAttribute{Optional: true, MarkdownDescription: "The `omada_network` (LAN network) id this SSID's VLAN tag binds to. Required when `vlan_enable = true` on create."},
+			"lan_network_id": schema.StringAttribute{Optional: true, Computed: true, PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()}, MarkdownDescription: "The `omada_network` (LAN network) id this SSID's VLAN tag binds to. Required when `vlan_enable = true` on create."},
 			"guest_net":      schema.BoolAttribute{Optional: true, Computed: true, Default: booldefault.StaticBool(false), MarkdownDescription: "Whether this is a guest network."},
 
 			"portal_enable":        b("Captive portal on this SSID."),
@@ -371,7 +371,10 @@ func (r *wirelessResource) Create(ctx context.Context, req resource.CreateReques
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	if plan.VLANEnable.ValueBool() && (plan.LANNetworkID.IsNull() || plan.LANNetworkID.ValueString() == "") {
+	// Check cfg, not plan: lan_network_id is Optional+Computed, so an omitted
+	// value is Unknown in the plan (not Null) — only the raw config reliably
+	// tells us the user didn't set it.
+	if plan.VLANEnable.ValueBool() && (cfg.LANNetworkID.IsNull() || cfg.LANNetworkID.ValueString() == "") {
 		resp.Diagnostics.AddAttributeError(path.Root("lan_network_id"), "Missing lan_network_id",
 			"lan_network_id is required when vlan_enable is true: the controller binds an SSID's VLAN tag to "+
 				"a specific network, not a bare VLAN number, and a fresh create has no existing binding to fall "+
