@@ -33,6 +33,9 @@ func checkVLANBinding(t *testing.T, srvURL, wantNetID string, wantVLAN int) reso
 			if got, _ := cc["bridgeVlan"].(float64); int(got) != wantVLAN {
 				return fmt.Errorf("customConfig.bridgeVlan = %v, want %d", got, wantVLAN)
 			}
+			if got, _ := cc["vlanPoolIds"].(string); got != fmt.Sprintf("%d", wantVLAN) {
+				return fmt.Errorf("customConfig.vlanPoolIds = %q, want %q", got, fmt.Sprintf("%d", wantVLAN))
+			}
 		}
 		return nil
 	}

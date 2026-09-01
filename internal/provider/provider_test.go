@@ -654,9 +654,19 @@ func newMockController(t *testing.T) *httptest.Server {
 			}
 			// Confirmed live: vlanEnable without vlanSetting (which is where
 			// the bound omada_network id lives) fails the same generic way.
-			if vlanEnable, _ := in["vlanEnable"].(bool); vlanEnable && in["vlanSetting"] == nil {
-				writeEnvelope(w, -1001, "Invalid request parameters.", nil)
-				return
+			// vlanPoolIds inside customConfig is the same story: present on
+			// every existing SSID, missing it fails create the same way.
+			if vlanEnable, _ := in["vlanEnable"].(bool); vlanEnable {
+				vs, _ := in["vlanSetting"].(map[string]any)
+				if vs == nil {
+					writeEnvelope(w, -1001, "Invalid request parameters.", nil)
+					return
+				}
+				cc, _ := vs["customConfig"].(map[string]any)
+				if cc == nil || cc["vlanPoolIds"] == nil {
+					writeEnvelope(w, -1001, "Invalid request parameters.", nil)
+					return
+				}
 			}
 			id := fmt.Sprintf("ssid-%d", ssidNext)
 			ssidNext++

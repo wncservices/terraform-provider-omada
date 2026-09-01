@@ -52,6 +52,10 @@ type VLANCustomConfig struct {
 	LANNetworkID      string           `json:"lanNetworkId"`
 	LANNetworkVLANIDs map[string][]int `json:"lanNetworkVlanIds"`
 	BridgeVLAN        int              `json:"bridgeVlan,omitempty"`
+	// VLANPoolIDs mirrors the VLAN id as a string. Present on every existing
+	// SSID alongside BridgeVLAN; missing it fails create with the same bare
+	// -1001 that missing LANNetworkID does.
+	VLANPoolIDs string `json:"vlanPoolIds"`
 }
 
 // VLANSetting is the SSID-to-network VLAN binding. Without it, vlan_enable +
