@@ -220,6 +220,7 @@ func (r *wirelessResource) fields(m wirelessResourceModel) map[string]any {
 				"lanNetworkId":      netID,
 				"lanNetworkVlanIds": map[string]any{netID: []int{vlanID}},
 				"bridgeVlan":        vlanID,
+				"vlanPoolIds":       fmt.Sprintf("%d", vlanID),
 			},
 			"currentVlanId":  vlanID,
 			"currentVlanIds": fmt.Sprintf("%d", vlanID),
