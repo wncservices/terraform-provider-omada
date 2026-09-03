@@ -1,0 +1,78 @@
+name: Bug report
+description: Something in the provider doesn't work as documented.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug. This provider drives the
+        Omada controller's undocumented web UI API, so controller behaviour and
+        firmware version matter a lot — please fill in as much as you can.
+
+  - type: input
+    id: provider-version
+    attributes:
+      label: Provider version
+      description: The `version` pinned in your `required_providers` block, or `dev_overrides` + commit SHA if running from source.
+      placeholder: "0.10.2"
+    validations:
+      required: true
+
+  - type: input
+    id: terraform-version
+    attributes:
+      label: Terraform version
+      description: Output of `terraform version`.
+      placeholder: "Terraform v1.15.0"
+    validations:
+      required: true
+
+  - type: input
+    id: controller-version
+    attributes:
+      label: Omada controller model & firmware
+      description: e.g. OC200 v6.2.1, or Software Controller version. Find it under Settings → Controller Status in the Omada UI.
+      placeholder: "OC200, firmware 6.2.1"
+    validations:
+      required: true
+
+  - type: textarea
+    id: config
+    attributes:
+      label: Terraform configuration
+      description: The minimal `.tf` snippet that reproduces the issue.
+      render: hcl
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: What happened instead — error message, incorrect state, or a diff that doesn't converge.
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Debug output
+      description: |
+        Run with `TF_LOG=debug terraform apply 2>debug.log`, then paste the
+        relevant excerpt (or attach the file). **Redact your controller URL,
+        credentials, and any secrets before posting** — debug logs can include
+        request/response bodies.
+      render: shell
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional context
+      description: Anything else — related resources, whether this worked in a previous provider version, etc.

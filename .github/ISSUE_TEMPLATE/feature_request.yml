@@ -1,0 +1,43 @@
+name: Feature request
+description: Request coverage for a new resource, data source, or field.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before filing, check [`DESIGN.md`](../../DESIGN.md) §3 (coverage matrix)
+        and §5 (what's left) — the gap you're after may already be scoped, or
+        there may be a documented reason it's blocked (missing hardware,
+        controller limitation, etc).
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What's missing
+      description: The Omada UI screen, setting, or field this would cover. Be specific — "gateway settings" is too broad, "WAN load balancing mode under Settings → Transmission → Load Balance" is right.
+    validations:
+      required: true
+
+  - type: textarea
+    id: usecase
+    attributes:
+      label: Use case
+      description: What are you trying to accomplish that you can't today?
+    validations:
+      required: true
+
+  - type: textarea
+    id: api
+    attributes:
+      label: API details (if known)
+      description: |
+        If you've captured the request from browser devtools while performing
+        the action in the Omada UI, paste the method, path, and JSON body here
+        — it saves the person picking this up a round trip. Not required.
+      render: json
+
+  - type: input
+    id: controller-version
+    attributes:
+      label: Omada controller model & firmware
+      placeholder: "OC200, firmware 6.2.1"
