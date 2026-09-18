@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 )
 
 // EnableFlag is the common {"enable": bool} sub-object.
@@ -162,13 +163,19 @@ func networksPath(siteID string) string {
 // interruption between them can leave a network that exists but is not yet
 // fully configured. It will be reconciled on the next apply.
 func (c *Client) CreateNetwork(ctx context.Context, siteID string, fields map[string]any) (*Network, error) {
-	if !c.openAPIConfigured() {
-		return nil, fmt.Errorf("creating a network needs Open API credentials: %w", ErrOpenAPINotConfigured)
-	}
-
 	name, _ := fields["name"].(string)
 	if name == "" {
 		return nil, fmt.Errorf("creating network: name is required")
+	}
+
+	// An L2-only VLAN goes through the web API instead, and needs neither Open
+	// API credentials nor a gateway. See createVLANNetwork.
+	if isVLANPurpose(fields["purpose"]) {
+		return c.createVLANNetwork(ctx, siteID, name, fields)
+	}
+
+	if !c.openAPIConfigured() {
+		return nil, fmt.Errorf("creating a network needs Open API credentials: %w", ErrOpenAPINotConfigured)
 	}
 
 	purpose, err := openAPIPurpose(fields["purpose"])
@@ -253,10 +260,137 @@ func openAPIPurpose(v any) (int, error) {
 		if p == "" || p == "interface" {
 			return 1, nil
 		}
-		return 0, fmt.Errorf("purpose %q has no known Open API equivalent, so the network cannot "+
-			"be created — only %q is mapped. Create it in the controller UI and import it instead", p, "interface")
+		return 0, fmt.Errorf("purpose %q has no known Open API equivalent — only %q is mapped. "+
+			"(%q networks do not come through here at all; they are created on the web API by "+
+			"createVLANNetwork.) Create it in the controller UI and import it instead",
+			p, "interface", "vlan")
 	default:
 		return 0, fmt.Errorf("unexpected purpose type %T", v)
+	}
+}
+
+// isVLANPurpose reports whether these fields describe an L2-only VLAN.
+//
+// The web API spells purposes as strings; "vlan" is the one the Open API has no
+// number for.
+func isVLANPurpose(v any) bool {
+	s, _ := v.(string)
+	return s == "vlan"
+}
+
+// createVLANNetwork creates an L2-only VLAN through the WEB API.
+//
+//	POST /sites/{site}/setting/lan/networks
+//
+// This is the exception to "create is the one network operation the web API
+// will not do". That claim came from a site with an ER707-M2 gateway, where the
+// POST is refused; it is not true everywhere. On a site with **no gateway**
+// (verified on v6.2.14.11, a site whose only device was an EAP670) the same
+// POST creates a VLAN network from four fields:
+//
+//	{"name": ..., "vlan": 1-4094, "purpose": "vlan", "igmpSnoopEnable": false}
+//
+// and answers errorCode 0 with the new id as a bare JSON string.
+//
+// Neither gatewaySubnet nor interfaceIds is sent, and neither may be: on this
+// path the controller owns both. The created network came back with
+// interfaceIds already populated with four ids and allLan true, and
+// gatewaySubnet absent — which is the shape an L2 VLAN should have, since with
+// no gateway there is no subnet to route and no LAN interface for the caller to
+// name. The Open API's two refusals that block this path (-35930 "gatewaySubnet
+// required" and -33515 "LAN interfaces could not be none") are therefore rules
+// of gateway sites, not of networks in general.
+//
+// # Why this is not just used for every network
+//
+// Because the refusal on gateway sites is real and documented, and an
+// interface-purpose network genuinely does need the subnet and interfaces the
+// Open API asks for. Routing by purpose keeps the proven path proven: nothing
+// about creating an "interface" network changes.
+//
+// # How the contract was established without creating anything
+//
+// Every probe carried vlan 99999, outside the legal 1-4094, so validation could
+// never let one through (DESIGN.md §5.1). This endpoint reports every
+// unsatisfied field at once rather than short-circuiting, so the required set
+// could be walked out in two rounds. One real create on a throwaway VLAN then
+// confirmed no further round of validation was hiding behind the range check,
+// and the object was deleted again.
+func (c *Client) createVLANNetwork(ctx context.Context, siteID, name string, fields map[string]any) (*Network, error) {
+	if fields["vlan"] == nil {
+		return nil, fmt.Errorf("creating network %q: vlan is required", name)
+	}
+
+	// Both are controller-owned here. Sending a caller's value would either be
+	// ignored or produce a network that claims a subnet it cannot route, so say
+	// so rather than quietly dropping them.
+	for field, attr := range map[string]string{
+		"gatewaySubnet": "gateway_subnet",
+		"interfaceIds":  "interface_ids",
+	} {
+		if v, ok := fields[field]; ok && !isEmptyValue(v) {
+			return nil, fmt.Errorf("creating network %q: %s cannot be set on a %q network — "+
+				"the controller assigns it (an L2-only VLAN has no subnet to route and no "+
+				"gateway interface to bind to). Remove it, or use purpose %q",
+				name, attr, "vlan", "interface")
+		}
+	}
+
+	seed := map[string]any{
+		"name":            name,
+		"vlan":            fields["vlan"],
+		"purpose":         "vlan",
+		"igmpSnoopEnable": valueOr(fields, "igmpSnoopEnable", false),
+	}
+
+	// Unlike the Open API create, this one returns the new id, so there is no
+	// resolve-by-name step and none of §5.4a's ambiguity about which network
+	// was just made.
+	var id string
+	if err := c.Do(ctx, http.MethodPost, networksPath(siteID), seed, &id); err != nil {
+		return nil, fmt.Errorf("creating vlan network %q: %w", name, err)
+	}
+	if id == "" {
+		return nil, fmt.Errorf("creating vlan network %q: controller reported success but "+
+			"returned no id", name)
+	}
+
+	// Everything else is applied by the ordinary update, exactly as the Open API
+	// path does — same reasoning, and the same consequence: an interruption
+	// between the two calls leaves a network that exists but is not yet fully
+	// configured, reconciled on the next apply.
+	rest := map[string]any{}
+	for k, v := range fields {
+		if _, seeded := seed[k]; !seeded {
+			rest[k] = v
+		}
+	}
+	if len(rest) == 0 {
+		return c.GetNetwork(ctx, siteID, id)
+	}
+	updated, err := c.UpdateNetwork(ctx, siteID, id, rest)
+	if err != nil {
+		return nil, fmt.Errorf("vlan network %q was created but its configuration could not be "+
+			"applied (it exists on the controller and will be reconciled on the next apply): %w",
+			name, err)
+	}
+	return updated, nil
+}
+
+// isEmptyValue reports whether a field carries nothing worth sending, so that
+// an attribute the practitioner left unset is not mistaken for one they set.
+func isEmptyValue(v any) bool {
+	switch t := v.(type) {
+	case nil:
+		return true
+	case string:
+		return t == ""
+	case []string:
+		return len(t) == 0
+	case []any:
+		return len(t) == 0
+	default:
+		return false
 	}
 }
 

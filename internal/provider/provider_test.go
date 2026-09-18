@@ -122,11 +122,55 @@ func newMockController(t *testing.T) *httptest.Server {
 		defer mu.Unlock()
 		switch r.Method {
 		case http.MethodPost:
-			// The real controller refuses network create on the web API — it
-			// only exists on the Open API. Emulating that is the point: a
-			// provider that regressed to POSTing here would pass a permissive
-			// mock and fail on hardware.
-			writeEnvelope(w, -1005, "operation forbidden", nil)
+			// Create behaves differently per purpose, and both halves matter.
+			//
+			// An "interface" network is refused here: on a site with a gateway
+			// the real controller rejects a web-API create, and it only exists
+			// on the Open API. A provider that regressed to POSTing interface
+			// networks here would pass a permissive mock and fail on hardware.
+			//
+			// A "vlan" network IS created here. Verified on a gateway-less
+			// v6.2.14.11 site: four fields, no gatewaySubnet, no interfaceIds,
+			// and the id comes back as a bare JSON string. The controller fills
+			// in interfaceIds and allLan itself, which this mock reproduces so
+			// that a provider sending either one is caught.
+			var in map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+				writeEnvelope(w, -1001, "bad body", nil)
+				return
+			}
+			if p, _ := in["purpose"].(string); p != "vlan" {
+				writeEnvelope(w, -1005, "operation forbidden", nil)
+				return
+			}
+			if _, ok := in["igmpSnoopEnable"]; !ok {
+				writeEnvelope(w, -1001, "Parameter [igmpSnoopEnable] should not be null.", nil)
+				return
+			}
+			vlan, ok := in["vlan"].(float64)
+			if !ok || vlan < 1 || vlan > 4094 {
+				writeEnvelope(w, -1001, "Value of vlan is from 1 to 4094.", nil)
+				return
+			}
+			for _, forbidden := range []string{"gatewaySubnet", "interfaceIds"} {
+				if v, present := in[forbidden]; present && v != nil {
+					// The controller owns these on this path. The provider must
+					// never send them; failing loudly beats accepting silently.
+					writeEnvelope(w, -1001, "Parameter ["+forbidden+"] is not allowed here.", nil)
+					return
+				}
+			}
+			nextID++
+			id := fmt.Sprintf("vlan-net-%d", nextID)
+			in["id"] = id
+			in["vlanType"] = float64(0)
+			// Server-assigned, exactly as the live controller did.
+			in["interfaceIds"] = []any{"2_aaa", "3_bbb"}
+			in["allLan"] = true
+			in["primary"] = false
+			networks[id] = in
+			// The id comes back as a bare string, not an object.
+			writeEnvelope(w, 0, "Success.", id)
 		default: // GET
 			data := make([]map[string]any, 0, len(networks))
 			for _, n := range networks {

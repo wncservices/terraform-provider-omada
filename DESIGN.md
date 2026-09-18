@@ -294,7 +294,7 @@ preserved via read-modify-write.
 
 | Resource / data source | CRUD | Verified | Notes |
 |---|---|---|---|
-| `omada_network` | C/I/R/U/D | live | create goes through the Open API — see §5.1; `ipv6` nested attribute covers "Get from Prefix Delegation" (`proto = "rdnss"`) only — the other IPv6 Interface Type modes (DHCPv6, SLAAC+Stateless DHCP, Pass-Through) are unverified |
+| `omada_network` | C/I/R/U/D | live | create routes by purpose: `interface` via the Open API, `vlan` via the web API (gateway-less sites) — see §5.1; `ipv6` nested attribute covers "Get from Prefix Delegation" (`proto = "rdnss"`) only — the other IPv6 Interface Type modes (DHCPv6, SLAAC+Stateless DHCP, Pass-Through) are unverified |
 | `omada_lan_dns` | CRUD | live | |
 | `omada_port_forward` | CRUD | live | |
 | `omada_ip_group` | CRUD | live | delete path is `/groups/{type}/{id}` |
@@ -571,10 +571,30 @@ the shape falls out" category.
 These cannot be finished by writing code alone.
 
 1. **Network create** — **done**, and it took four rounds of discovery rather
-   than one. It lives on the Open API at
+   than one. For an `interface` network it lives on the Open API at
    `POST /openapi/v2/{omadacId}/sites/{site}/lan-networks`. The web API rejects
-   the POST outright, and there is **no `/networks/confirm` two-step** — that
-   path answers `-1600` on both v1 and v2, so the earlier note here was wrong.
+   that POST, and there is **no `/networks/confirm` two-step** — that path
+   answers `-1600` on both v1 and v2, so the earlier note here was wrong.
+
+   **"The web API rejects the POST outright" is true of gateway sites only**,
+   which is what the rig is. On a site with **no gateway** — verified on
+   v6.2.14.11, a site whose only device was an EAP670 — the same web-API POST
+   creates an L2-only VLAN from four fields and returns the new id as a bare
+   string:
+
+   ```json
+   {"name": "IoT", "vlan": 56, "purpose": "vlan", "igmpSnoopEnable": false}
+   ```
+
+   No `gatewaySubnet`, no `interfaceIds`: the controller assigns both (it came
+   back with four interface ids and `allLan: true`). So `-33515` and `-35930`
+   below are rules of **gateway sites**, not of networks in general, and the
+   provider routes create by purpose — `vlan` to the web API, `interface` to the
+   Open API, leaving the proven path untouched. See `createVLANNetwork`.
+
+   This matters beyond tidiness: a gateway-less site is exactly the case where
+   the Open API create is unreachable, so before this there was **no way to make
+   a VLAN at all** except by hand in the UI.
 
    The first round mapped the required field set — `name`, `purpose`, `vlan`,
    `igmpSnoopEnable` — off the endpoint's own validation errors *without
