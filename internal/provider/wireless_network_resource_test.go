@@ -214,6 +214,21 @@ resource "omada_wireless_network" "guest" {
 					return fmt.Sprintf("%s/%s", rs.Primary.Attributes["wlan_group_id"], rs.Primary.Attributes["id"]), nil
 				},
 			},
+			{ // update, still untagged: lan_network_id stays null
+				Config: testProviderConfig(srv.URL) + `
+resource "omada_wireless_network" "guest" {
+  wlan_group_id = "grp-default"
+  name          = "Guest"
+  vlan_enable   = false
+  vlan_id       = 0
+  guest_net     = true
+  multicast_channel_util = 80
+}`,
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("omada_wireless_network.guest", "multicast_channel_util", "80"),
+					resource.TestCheckNoResourceAttr("omada_wireless_network.guest", "lan_network_id"),
+				),
+			},
 		},
 	})
 }
