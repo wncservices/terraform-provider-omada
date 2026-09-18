@@ -50,6 +50,19 @@ func newTestController(t *testing.T) *httptest.Server {
 		})
 	})
 
+	// Access point device document: PATCH is a partial update on the real
+	// controller, so the fixture only has to accept a body and succeed.
+	mux.HandleFunc("/abc123/api/v2/sites/site-1/eaps/AA-BB-CC-DD-EE-FF", func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("Csrf-Token"); got != "tok-xyz" {
+			writeEnvelope(w, -1400, "invalid csrf token", nil)
+			return
+		}
+		writeEnvelope(w, 0, "", map[string]any{
+			"mac":  "AA-BB-CC-DD-EE-FF",
+			"name": "test-ap",
+		})
+	})
+
 	mux.HandleFunc("/abc123/api/v2/sites/site-1/setting/lan/networks", func(w http.ResponseWriter, r *http.Request) {
 		if got := r.Header.Get("Csrf-Token"); got != "tok-xyz" {
 			writeEnvelope(w, -1400, "invalid csrf token", nil)
