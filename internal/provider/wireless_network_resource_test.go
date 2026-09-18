@@ -177,3 +177,43 @@ resource "omada_wireless_network" "bad" {
 		},
 	})
 }
+
+// TestAccWirelessNetworkResourceUntagged creates an SSID with no VLAN and no
+// lan_network_id. The controller reports no network binding for such an SSID,
+// so lan_network_id must resolve to null after create rather than stay
+// unknown ("Provider returned invalid result object after apply", seen live
+// on every untagged SSID create).
+func TestAccWirelessNetworkResourceUntagged(t *testing.T) {
+	srv := newMockController(t)
+
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: testProviderConfig(srv.URL) + `
+resource "omada_wireless_network" "guest" {
+  wlan_group_id = "grp-default"
+  name          = "Guest"
+  psk           = "supersecret"
+  vlan_enable   = false
+  vlan_id       = 0
+  guest_net     = true
+}`,
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttrSet("omada_wireless_network.guest", "id"),
+					resource.TestCheckNoResourceAttr("omada_wireless_network.guest", "lan_network_id"),
+				),
+			},
+			{
+				ResourceName:            "omada_wireless_network.guest",
+				ImportState:             true,
+				ImportStateVerify:       true,
+				ImportStateVerifyIgnore: []string{"psk"},
+				ImportStateIdFunc: func(s *terraform.State) (string, error) {
+					rs := s.RootModule().Resources["omada_wireless_network.guest"]
+					return fmt.Sprintf("%s/%s", rs.Primary.Attributes["wlan_group_id"], rs.Primary.Attributes["id"]), nil
+				},
+			},
+		},
+	})
+}
