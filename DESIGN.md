@@ -258,6 +258,27 @@ for an Optional-only attribute.
 `TestAccGatewayImportWithoutSitePrefix` pins it — bare import id, config naming
 the site, plan asserted empty.
 
+### 2.7b Controller-scoped resources take no `site` at all
+
+§2.7a is a rule about site-scoped resources, not a requirement that every
+resource have a site. A few controller documents live *above* sites: their path
+has no `/sites/{id}/` in it and there is exactly one of them per controller.
+`omada_controller_settings` is the first.
+
+Such a resource simply omits `site` and `site_id`, never calls `ResolveSite`,
+and uses the controller's own id (`client.OmadacID()`) as its Terraform id. No
+second provider and no muxing is needed for this: the provider's own `site`
+argument is already `Optional`, and `Configure` only stores it as `defaultSite`
+for the resources that choose to consume it.
+
+Two consequences worth stating, since a singleton behaves unlike the rest:
+
+- **Create and Update are the same operation.** The document always exists, so
+  "create" means "start managing". Neither checks for prior existence.
+- **Delete changes nothing on the controller**, and says so with a warning.
+  Resetting a controller-wide document on destroy would mean the provider
+  inventing defaults for something every adopted device depends on.
+
 ### 2.8 Sparse keyed collections
 
 Some documents carry a long list of keyed entries where most of each entry is
@@ -338,6 +359,7 @@ preserved via read-modify-write.
 | `omada_port_forwards` (data) | R | mock | discovery — list rules + IDs |
 | `omada_firewall_acls` (data) | R | mock | discovery — lists all ACL types |
 | `omada_devices` (data) | R | live | inventory — gateways/switches/APs |
+| `omada_controller_settings` | R/U (singleton) | live · subset | **controller-scoped: no `site`** — see §2.7b; `PATCH /controller/setting`, sections sent whole; SMTP/certificate/RADIUS deliberately unmodelled |
 
 ---
 

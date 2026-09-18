@@ -221,6 +221,9 @@ func (p *OmadaProvider) Resources(_ context.Context) []func() resource.Resource 
 		NewDisableNATResource,
 		NewDHCPReservationResource,
 		NewRadiusProfileResource,
+
+		// Controller-scoped: no site in the path, no `site` attribute.
+		NewControllerSettingsResource,
 	}
 }
 
