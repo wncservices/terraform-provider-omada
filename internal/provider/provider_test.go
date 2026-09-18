@@ -1240,6 +1240,74 @@ func newMockController(t *testing.T) *httptest.Server {
 		"portConfigs":   []any{map[string]any{"port": float64(1), "pvid": float64(0)}},
 		"unmodelledKey": "keep-me",
 	}
+	// --- access point -------------------------------------------------------
+	// radioWrites counts how many times a radio document was sent. On real
+	// hardware each such write restarts that radio and drops its clients, so
+	// the count is the property the acceptance test actually cares about.
+	apRadioWrites := map[string]int{}
+	apDoc := map[string]any{
+		"mac": "10-5A-95-89-C3-64", "name": "10-5A-95-89-C3-64",
+		"model": "EAP670", "ip": "192.168.53.100",
+		"ledSetting": float64(2), "lldpEnable": float64(2),
+		"ofdmaEnable2g": true, "ofdmaEnable5g": true,
+		"snmp":            map[string]any{"location": "", "contact": ""},
+		"l3AccessSetting": map[string]any{"enable": true},
+		"radioSetting2g": map[string]any{
+			"radioEnable": true, "channelWidth": "4", "channel": "0",
+			"txPower": float64(25), "txPowerLevel": float64(4),
+			"freq": float64(0), "wirelessMode": float64(-2),
+		},
+		"radioSetting5g": map[string]any{
+			"radioEnable": true, "channelWidth": "6", "channel": "0",
+			"txPower": float64(28), "txPowerLevel": float64(4),
+			"freq": float64(0), "wirelessMode": float64(-2),
+		},
+		"lbSetting2g":   map[string]any{"lbEnable": false, "maxClients": float64(1)},
+		"lbSetting5g":   map[string]any{"lbEnable": false, "maxClients": float64(1)},
+		"rssiSetting2g": map[string]any{"rssiEnable": false, "threshold": float64(-95)},
+		"rssiSetting5g": map[string]any{"rssiEnable": false, "threshold": float64(-95)},
+		"unmodelledKey": "keep-me",
+	}
+	mux.HandleFunc("/abc123/api/v2/sites/site-1/eaps/10-5A-95-89-C3-64", func(w http.ResponseWriter, r *http.Request) {
+		if !requireToken(w, r) {
+			return
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		switch r.Method {
+		case http.MethodGet:
+		case http.MethodPatch:
+			var in map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&in)
+			for _, key := range []string{"radioSetting2g", "radioSetting5g"} {
+				radio, sent := in[key].(map[string]any)
+				if !sent {
+					continue
+				}
+				// The live controller accepts channel, reports success and
+				// ignores it. The provider must never send one.
+				if _, hasChannel := radio["channel"]; hasChannel {
+					writeEnvelope(w, -1001, "must not write "+key+".channel", nil)
+					return
+				}
+				apRadioWrites[key]++
+			}
+			if _, sent := in["mvlanEnable"]; sent {
+				if _, paired := in["mvlanNetworkId"]; !paired {
+					writeEnvelope(w, -1001, "mvlanEnable without mvlanNetworkId", nil)
+					return
+				}
+			}
+			for k, v := range in {
+				apDoc[k] = v
+			}
+		default: // PUT, POST
+			writeEnvelope(w, -1600, "Unsupported request path.", nil)
+			return
+		}
+		writeEnvelope(w, 0, "", apDoc)
+	})
+
 	mux.HandleFunc("/abc123/api/v2/sites/site-1/gateways/F0-09-0D-D0-97-76", func(w http.ResponseWriter, r *http.Request) {
 		if !requireToken(w, r) {
 			return
@@ -1269,6 +1337,19 @@ func newMockController(t *testing.T) *httptest.Server {
 			out[k] = v
 		}
 		writeEnvelope(w, 0, "", out)
+	})
+
+	mux.HandleFunc("/debug/accessPoint", func(w http.ResponseWriter, _ *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		radios := map[string]any{}
+		for k, v := range apRadioWrites {
+			radios[k] = float64(v)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]map[string]any{
+			"accessPoint": apDoc,
+			"radioWrites": radios,
+		})
 	})
 
 	mux.HandleFunc("/debug/gateway", func(w http.ResponseWriter, _ *http.Request) {

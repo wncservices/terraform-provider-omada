@@ -206,6 +206,7 @@ func (p *OmadaProvider) Resources(_ context.Context) []func() resource.Resource 
 		NewIoTBeaconResource,
 		NewIPTVResource,
 		NewDNSProxyResource,
+		NewAccessPointResource,
 		NewGatewayResource,
 		NewSSHSettingsResource,
 		NewDot1XResource,

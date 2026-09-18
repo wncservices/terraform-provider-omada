@@ -547,7 +547,7 @@ Every configuration endpoint found on the controller, and where it stands.
 | `/setting/iot/radio` | ✅ `omada_iot_radio` — **Open API only** |
 | `/setting/iot/devices/config` | ⚠️ `omada_iot_beacon` — create/delete unverified (§5.1) |
 | `/setting/iot/servers` | ✅ `omada_iot_server` |
-| per-device configuration | ⚠️ `omada_switch_port`, `omada_gateway` (§5.5); AP config not started |
+| per-device configuration | ⚠️ `omada_switch_port`, `omada_gateway`, `omada_access_point` (§5.5) |
 
 Not found despite looking, and so presumably unsupported on this hardware or
 named unlike anything tried: DMZ, port triggering, multi-nets NAT, switch-side
@@ -756,7 +756,7 @@ Straightforward, but each needs one real row before the item shape is known:
 - `omada_service_types`, `omada_wan_ports` — listings that would make the opaque
   ids in §5.1 and §5.8 usable by name.
 
-### 5.5 Per-device configuration — switch ports and gateway shipped, APs not
+### 5.5 Per-device configuration — switch ports, gateway and APs shipped
 
 `omada_devices` covers read-only inventory. Per-device *config* now has its
 first resource, `omada_switch_port`, and it is the provider's only
@@ -812,10 +812,37 @@ scoped resources (`omada_wan`, port forwards, disable-NAT, firewall) cover the
 same ground reviewably. `UpdateGateway` refuses a body containing `portConfigs`
 even if some future caller builds one.
 
-Still to do: AP configuration (`GET /api/v2/sites/{site}/eaps/{mac}`), and the
-rest of the switch port document — PoE, per-port QoS, storm control, spanning
-tree — none of which appear in the UI capture, so each needs its own capture
-before anything is written.
+**APs turned out to be the gateway's case, with one extra rule.**
+`PATCH /sites/{site}/eaps/{mac}` on the web API is a genuine partial update
+(PUT and POST answer -1600), so `omada_access_point` needs no Open API. Its
+fields split three ways, and conflating them breaks a live site:
+
+- **Safe**: `ledSetting`, `lldpEnable`, `snmp`, `l3AccessSetting`, `ofdma*`,
+  `lb*`, `rssi*`, `qos*`. Each confirmed by the §4 idempotent probe.
+- **Disruptive**: `radioSetting2g` / `radioSetting5g`. Writing a radio document
+  **restarts that radio even when every value in it is identical**. Observed
+  live: writing `radioSetting5g` back to itself dropped every 5GHz client.
+  So the idempotent probe that validates everything else in this provider is
+  itself an outage here, and the resource compares against the device and
+  sends a radio only when something differs. The acceptance test asserts the
+  write count, not just the state.
+- **Accepted, reported success, silently ignored**: `channel`. `"36"` or `36`,
+  with the rest of the object intact, returns `errorCode 0` and leaves it at
+  `"0"`. This is §5.5a's shape, so `channel` is read-only and the client layer
+  refuses a body that sets it rather than letting an apply look clean and
+  drift forever. The real mechanism is likely site-level RF planning.
+
+`ipSetting` is rejected (`-1001`) in the shape the read returns, so it is not
+modelled. And one field is booby-trapped: writing `mvlanEnable` with the
+device's **own current value** cleared the coupled `mvlanNetworkId` from a real
+id to `null`, and writing the id back returned `errorCode 0` without restoring
+it — so `mvlanEnable` is refused unless `mvlanNetworkId` is set in the same
+body. That is the sharpest illustration of why the allow-list rule above exists.
+
+Still to do: the rest of the switch port document — PoE, per-port QoS, storm
+control, spanning tree — none of which appear in the UI capture, so each needs
+its own capture before anything is written. On APs, `ssidOverrides` and
+`mgtSsidSetting` are likewise unmapped.
 
 Supporting reads already available:
 `GET /api/v2/sites/{site}/setting/lan/profileSummary` (port profiles as
