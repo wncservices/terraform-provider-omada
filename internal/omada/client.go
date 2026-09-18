@@ -122,6 +122,17 @@ func NewClientWithOpenAPI(ctx context.Context, rawURL, username, password, openA
 	return c, nil
 }
 
+// OmadacID returns the controller's own id, the one that prefixes every
+// /api/v2 path. NewClient logs in before returning, so it is always populated.
+//
+// Controller-scoped resources use it as their Terraform id: there is one such
+// document per controller, and this says which controller it came from.
+func (c *Client) OmadacID() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.omadacID
+}
+
 // RawList fetches a list endpoint and returns each item as a raw map, paging
 // across all results. Used by resources that manage a subset of a complex
 // object's fields and must preserve the rest (read-modify-write on update).
