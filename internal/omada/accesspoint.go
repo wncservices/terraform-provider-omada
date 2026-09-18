@@ -27,8 +27,13 @@ import (
 // # 1. Safe to write
 //
 // LEDSetting, LLDPEnable, SNMP, L3Access, OFDMA, LoadBalance, RSSI and QoS all
-// apply without disturbing associated clients. Each was confirmed by writing
-// the device its own current value (§4's idempotent probe) and re-reading.
+// apply without disturbing associated clients.
+//
+// The §4 idempotent probe was not enough to establish that. Writing a field its
+// own value proves the controller ACCEPTS it, not that it APPLIES it — and this
+// endpoint has at least one field (Channel, below) that accepts and ignores. So
+// these were verified by changing a value and re-reading: ledSetting 2 -> 1 and
+// ofdmaEnable2g true -> false both took effect, and were restored afterwards.
 //
 // # 2. Applied, but DISRUPTIVE
 //
@@ -51,9 +56,19 @@ import (
 // Channel. Sending "36" or 36, with the rest of the radio object intact,
 // returns errorCode 0 and leaves channel at "0" (auto). This is §5.5a's "a
 // create that lies about failing": a resource modelling Channel as writable
-// would show a clean apply and then drift forever. It is therefore read-only
-// here. The real mechanism is likely site-level RF planning rather than
-// per-device, and is not yet mapped.
+// would show a clean apply and then drift forever. It is therefore read-only.
+//
+// This was checked twice over. The sibling provider
+// emanuelbesliu/terraform-provider-tplink-omada writes radios through a
+// dedicated PUT /eaps/{mac}/config/radios instead, and models channel as
+// settable. That endpoint does exist here — GET answers -1600 but PUT returns
+// errorCode 0, the same write-only shape as the switch port's Open API half —
+// and channel STILL does not apply through it. So on this controller and
+// device the field is inert on both paths, whatever it does elsewhere.
+//
+// Firmware, model or a site-level auto-RF setting may explain the difference;
+// none of the obvious /setting/{rf,wlanOptimization,rfPlanning} paths exist on
+// 6.2.14.11, so the real mechanism is still unmapped.
 //
 // IPSetting is rejected outright (-1001) in the shape the read returns, so it
 // is not modelled either.

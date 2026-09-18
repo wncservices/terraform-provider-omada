@@ -61,8 +61,8 @@ output "ap_5g_channel" {
 ### Optional
 
 - `l3_access_enable` (Boolean) Allow the controller to manage this AP across a layer-3 boundary.
-- `led_setting` (Number) Controller enum for the status LED. `2` — follow the site setting — is what was observed live; the controller does not publish the rest.
-- `lldp_enable` (Number) Controller enum for LLDP. An integer on APs, unlike the gateway's boolean; `2` observed live.
+- `led_setting` (Number) Status LED: `0` off, `1` on, `2` follow the site setting.
+- `lldp_enable` (Number) LLDP: `0` off, `1` on, `2` follow the site setting. An integer on APs, unlike the gateway's boolean, and null on models without LLDP.
 
 ~> LLDP advertises the device's identity and model to anything on the link.
 - `load_balance_2g_enable` (Boolean) Refuse new 2.4GHz associations past `load_balance_2g_max_clients`.
@@ -72,16 +72,16 @@ output "ap_5g_channel" {
 - `name` (String) Device name shown in the controller. A freshly adopted AP is named after its MAC, which makes a multi-AP site hard to read.
 - `ofdma_enable_2g` (Boolean) OFDMA on 2.4GHz. Unlike the radio attributes below, this applies without restarting the radio.
 - `ofdma_enable_5g` (Boolean) OFDMA on 5GHz. Applies without restarting the radio.
-- `radio_2g_channel_width` (String) Controller enum for 2.4GHz channel width, as a string. **Changing this restarts the radio.**
+- `radio_2g_channel_width` (String) 2.4GHz channel width, as a string: `"2"` 20MHz, `"3"` 40MHz, `"4"` auto. **Changing this restarts the radio.**
 - `radio_2g_enable` (Boolean) Whether the 2.4GHz radio is on. **Changing this restarts the radio.**
 - `radio_2g_tx_power` (Number) 2.4GHz transmit power in dBm. **Changing this restarts the radio.**
 
 ~> More power is not more coverage: it makes the AP shout further than clients can answer, and raises the noise floor for the neighbours you share the band with.
-- `radio_2g_tx_power_level` (Number) Controller enum pairing with `radio_2g_tx_power`. **Changing this restarts the radio.**
-- `radio_5g_channel_width` (String) Controller enum for 5GHz channel width, as a string. **Changing this restarts the radio.**
+- `radio_2g_tx_power_level` (Number) 2.4GHz power level: `0` low, `1` medium, `2` high, `3` custom, `4` auto; `radio_2g_tx_power` applies only at `3`. **Changing this restarts the radio.**
+- `radio_5g_channel_width` (String) 5GHz channel width, as a string: `"5"` 80MHz, `"6"` auto (80/40/20), `"7"` 160MHz. **Changing this restarts the radio.**
 - `radio_5g_enable` (Boolean) Whether the 5GHz radio is on. **Changing this restarts the radio.**
 - `radio_5g_tx_power` (Number) 5GHz transmit power in dBm. **Changing this restarts the radio.**
-- `radio_5g_tx_power_level` (Number) Controller enum pairing with `radio_5g_tx_power`. **Changing this restarts the radio.**
+- `radio_5g_tx_power_level` (Number) 5GHz power level: `0` low, `1` medium, `2` high, `3` custom, `4` auto; `radio_5g_tx_power` applies only at `3`. **Changing this restarts the radio.**
 - `rssi_2g_enable` (Boolean) Disassociate 2.4GHz clients below `rssi_2g_threshold`.
 
 ~> A threshold set too high evicts clients that were working perfectly well.
@@ -97,7 +97,7 @@ output "ap_5g_channel" {
 - `id` (String) The AP MAC, normalised.
 - `ip` (String) Management IP. Read-only.
 - `model` (String) Hardware model. Read-only.
-- `radio_2g_channel` (String) 2.4GHz channel, `"0"` for automatic. **Read-only.** The controller accepts a write here, reports success, and leaves the channel unchanged, so modelling it as settable would produce a clean apply followed by permanent drift.
+- `radio_2g_channel` (String) 2.4GHz channel, `"0"` for automatic. **Read-only.** The controller accepts a write, reports success, and leaves the channel unchanged — via the device PATCH *and* via `PUT /eaps/{mac}/config/radios` — so modelling it as settable would produce a clean apply followed by permanent drift. See the resource notes.
 - `radio_5g_channel` (String) 5GHz channel, `"0"` for automatic. **Read-only**, for the same reason as `radio_2g_channel`.
 - `site_id` (String)
 

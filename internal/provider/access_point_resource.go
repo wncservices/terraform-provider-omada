@@ -124,13 +124,12 @@ func (r *accessPointResource) Schema(_ context.Context, _ resource.SchemaRequest
 			},
 			"led_setting": schema.Int64Attribute{
 				Optional: true, Computed: true,
-				MarkdownDescription: "Controller enum for the status LED. `2` — follow the site setting — " +
-					"is what was observed live; the controller does not publish the rest.",
+				MarkdownDescription: "Status LED: `0` off, `1` on, `2` follow the site setting.",
 			},
 			"lldp_enable": schema.Int64Attribute{
 				Optional: true, Computed: true,
-				MarkdownDescription: "Controller enum for LLDP. An integer on APs, unlike the gateway's " +
-					"boolean; `2` observed live.\n\n" +
+				MarkdownDescription: "LLDP: `0` off, `1` on, `2` follow the site setting. An integer on APs, " +
+					"unlike the gateway's boolean, and null on models without LLDP.\n\n" +
 					"~> LLDP advertises the device's identity and model to anything on the link.",
 			},
 			"snmp_location": schema.StringAttribute{
@@ -164,7 +163,7 @@ func (r *accessPointResource) Schema(_ context.Context, _ resource.SchemaRequest
 			},
 			"radio_2g_channel_width": schema.StringAttribute{
 				Optional: true, Computed: true,
-				MarkdownDescription: "Controller enum for 2.4GHz channel width, as a string. " +
+				MarkdownDescription: "2.4GHz channel width, as a string: `\"2\"` 20MHz, `\"3\"` 40MHz, `\"4\"` auto. " +
 					"**Changing this restarts the radio.**",
 			},
 			"radio_2g_tx_power": schema.Int64Attribute{
@@ -175,14 +174,16 @@ func (r *accessPointResource) Schema(_ context.Context, _ resource.SchemaRequest
 			},
 			"radio_2g_tx_power_level": schema.Int64Attribute{
 				Optional: true, Computed: true,
-				MarkdownDescription: "Controller enum pairing with `radio_2g_tx_power`. " +
+				MarkdownDescription: "2.4GHz power level: `0` low, `1` medium, `2` high, `3` custom, `4` auto; " +
+					"`radio_2g_tx_power` applies only at `3`. " +
 					"**Changing this restarts the radio.**",
 			},
 			"radio_2g_channel": schema.StringAttribute{
 				Computed: true,
 				MarkdownDescription: "2.4GHz channel, `\"0\"` for automatic. **Read-only.** The controller " +
-					"accepts a write here, reports success, and leaves the channel unchanged, so " +
-					"modelling it as settable would produce a clean apply followed by permanent drift.",
+					"accepts a write, reports success, and leaves the channel unchanged — via the device " +
+					"PATCH *and* via `PUT /eaps/{mac}/config/radios` — so modelling it as settable would " +
+					"produce a clean apply followed by permanent drift. See the resource notes.",
 			},
 
 			"radio_5g_enable": schema.BoolAttribute{
@@ -191,7 +192,7 @@ func (r *accessPointResource) Schema(_ context.Context, _ resource.SchemaRequest
 			},
 			"radio_5g_channel_width": schema.StringAttribute{
 				Optional: true, Computed: true,
-				MarkdownDescription: "Controller enum for 5GHz channel width, as a string. " +
+				MarkdownDescription: "5GHz channel width, as a string: `\"5\"` 80MHz, `\"6\"` auto (80/40/20), `\"7\"` 160MHz. " +
 					"**Changing this restarts the radio.**",
 			},
 			"radio_5g_tx_power": schema.Int64Attribute{
@@ -200,7 +201,8 @@ func (r *accessPointResource) Schema(_ context.Context, _ resource.SchemaRequest
 			},
 			"radio_5g_tx_power_level": schema.Int64Attribute{
 				Optional: true, Computed: true,
-				MarkdownDescription: "Controller enum pairing with `radio_5g_tx_power`. " +
+				MarkdownDescription: "5GHz power level: `0` low, `1` medium, `2` high, `3` custom, `4` auto; " +
+					"`radio_5g_tx_power` applies only at `3`. " +
 					"**Changing this restarts the radio.**",
 			},
 			"radio_5g_channel": schema.StringAttribute{
