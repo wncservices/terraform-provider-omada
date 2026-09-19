@@ -116,9 +116,14 @@ Three consequences shape the implementation:
 - **Only TOTP can be automated.** An emailed code needs a human, so an account
   whose `supportedMFATypes` lacks `3` fails with an error naming its actual
   methods rather than a generic rejection.
-- **Never retry a rejected code.** `-30139` is terminal here: retrying spends
-  the account's remaining attempts and locks it. A malformed secret is caught
-  when the client is built, before a code is ever sent.
+- **Retry a rejected code exactly once.** Codes are single-use, and a separate
+  process — the previous terraform command, a browser login — may already have
+  spent this window's, which looks identical to a wrong secret. One retry in
+  the next window rescues that; a second would start walking a genuinely wrong
+  secret toward the lock. A live 6.1.0.19 controller sends `-30139` with no
+  `codeRemainAttempts` at all, so the retry cannot be gated on the budget —
+  when the field *is* present and nearly spent, stop at the first rejection.
+  A malformed secret is caught when the client is built, before a code is sent.
 - **Never replay a code.** A re-login after a session timeout can land in the
   same 30-second window as the previous one, so `nextTOTPCode` waits for the
   next window rather than resending the code the controller already saw.

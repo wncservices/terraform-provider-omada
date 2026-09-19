@@ -59,6 +59,22 @@ func isMFARequired(code int) bool {
 	return code == -30165 || code == -30138
 }
 
+// mfaRejection is the payload accompanying -30139. `codeRemainAttempts` is the
+// controller's own countdown to locking the account, and is what makes a
+// bounded retry safe rather than reckless.
+type mfaRejection struct {
+	CodeRemainAttempts *int `json:"codeRemainAttempts"`
+	LockedMinutes      *int `json:"lockedMinutes"`
+}
+
+// mfaMinRemainingAttempts is the floor for retrying a rejected code. Codes are
+// single-use, and a *separate process* — the previous terraform command, a
+// browser login — may have already spent the one for this window, which looks
+// identical to a wrong secret. One retry in the next window rescues that case;
+// stopping while attempts remain keeps a genuinely wrong secret from walking
+// the account into a lock.
+const mfaMinRemainingAttempts = 3
+
 // mfaGuidance ends every "cannot get past 2FA" error. Both ways out are
 // deliberate operator choices, so name both rather than implying the only fix
 // is to weaken the controller.
@@ -208,31 +224,52 @@ func (c *Client) answerMFAChallenge(ctx context.Context, env *APIResponse) (*API
 			challengeErr, strings.Join(names, ", "), mfaGuidance)
 	}
 
-	code, err := c.nextTOTPCode(ctx)
-	if err != nil {
-		return nil, err
+	// At most two attempts, and the second only in a later code window — see
+	// mfaMinRemainingAttempts.
+	for attempt := range 2 {
+		code, err := c.nextTOTPCode(ctx)
+		if err != nil {
+			return nil, err
+		}
+
+		// MFAId is echoed back as-is, empty included: that is what the login
+		// page sends when the challenge omitted it, which is live 6.1 behaviour.
+		resp, err := c.postAuthJSON(ctx, "/api/v2/checkMFACodeAndLogin", map[string]any{
+			"username": c.username,
+			"password": c.password,
+			"code":     code,
+			"MFAId":    challenge.MFAId,
+			"mfaType":  mfaTypeTOTP,
+		})
+		if err != nil {
+			return nil, err
+		}
+
+		// Spent either way: the controller has now seen this code.
+		c.lastTOTPCode = code
+
+		if resp.ErrorCode != -30139 {
+			return resp, nil
+		}
+
+		var rejection mfaRejection
+		if len(resp.Result) > 0 {
+			_ = json.Unmarshal(resp.Result, &rejection)
+		}
+		remaining := "an unknown number of"
+		if rejection.CodeRemainAttempts != nil {
+			remaining = fmt.Sprintf("%d", *rejection.CodeRemainAttempts)
+		}
+
+		outOfBudget := rejection.CodeRemainAttempts != nil && *rejection.CodeRemainAttempts < mfaMinRemainingAttempts
+		if attempt == 1 || outOfBudget {
+			return nil, fmt.Errorf("login failed: %w. The controller rejected the generated code, with %s attempts left before it locks the account. Check that the TOTP secret belongs to this account and that this machine's clock is accurate",
+				&APIError{Code: resp.ErrorCode, Msg: resp.Msg}, remaining)
+		}
 	}
 
-	// MFAId is echoed back as-is, empty included: that is what the login page
-	// sends when the challenge omitted it, which is the live 6.1 behaviour.
-	resp, err := c.postAuthJSON(ctx, "/api/v2/checkMFACodeAndLogin", map[string]any{
-		"username": c.username,
-		"password": c.password,
-		"code":     code,
-		"MFAId":    challenge.MFAId,
-		"mfaType":  mfaTypeTOTP,
-	})
-	if err != nil {
-		return nil, err
-	}
-	if resp.ErrorCode == -30139 {
-		// Do not retry: the controller counts these down to an account lock.
-		return nil, fmt.Errorf("login failed: %w. The controller rejected the generated code — check that the TOTP secret belongs to this account and that this machine's clock is accurate. Repeated failures lock the account temporarily",
-			&APIError{Code: resp.ErrorCode, Msg: resp.Msg})
-	}
-
-	c.lastTOTPCode = code
-	return resp, nil
+	// Unreachable: the loop either returns a response or an error.
+	return nil, fmt.Errorf("login failed: exhausted 2FA attempts without a verdict")
 }
 
 // nextTOTPCode returns a code that has not been sent before. A re-login after a

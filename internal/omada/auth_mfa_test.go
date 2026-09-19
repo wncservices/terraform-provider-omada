@@ -31,6 +31,14 @@ type mfaController struct {
 	// rejectCode forces the "wrong code" answer, for the failure paths.
 	rejectCode bool
 
+	// rejectFirstCode refuses whatever code arrives first, which is what a
+	// controller does with one another process already spent.
+	rejectFirstCode bool
+
+	// remainAttempts, when set, is reported with each rejection and counts
+	// down — the controller's own budget before it locks the account.
+	remainAttempts *int
+
 	loginAttempts int
 	codesSeen     []string
 }
@@ -80,8 +88,15 @@ func (m *mfaController) server(t *testing.T) *httptest.Server {
 		if err != nil {
 			t.Errorf("fixture secret: %v", err)
 		}
-		if m.rejectCode || body.Code != cfg.codeAt(time.Now()) {
-			writeEnvelope(w, -30139, "Invalid code.", map[string]any{"codeRemainAttempts": 4})
+		spent := m.rejectFirstCode && len(m.codesSeen) == 1
+
+		if m.rejectCode || spent || body.Code != cfg.codeAt(time.Now()) {
+			result := map[string]any{}
+			if m.remainAttempts != nil {
+				*m.remainAttempts--
+				result["codeRemainAttempts"] = *m.remainAttempts
+			}
+			writeEnvelope(w, -30139, "Invalid code.", result)
 			return
 		}
 		writeEnvelope(w, 0, "", map[string]any{"token": "tok-2fa", "roleType": 0})
@@ -172,8 +187,61 @@ func TestLoginRejectsEmailOnlyAccount(t *testing.T) {
 	}
 }
 
-func TestLoginDoesNotRetryARejectedCode(t *testing.T) {
-	ctrl := &mfaController{secret: rfc6238Seed, rejectCode: true}
+// A code the controller has already seen — spent by the previous terraform
+// command, or by a browser login — must not fail the run. The controller does
+// not say how many attempts remain (verified live on 6.1.0.19), so the retry
+// is bounded at one rather than gated on a budget that never arrives.
+//
+// A 1-second code step keeps this honest about waiting for a fresh window
+// without making the test take 30 seconds.
+func TestLoginRetriesOnceWithAFreshCode(t *testing.T) {
+	fast := "otpauth://totp/x?secret=" + rfc6238Seed + "&period=1"
+	ctrl := &mfaController{secret: fast, rejectFirstCode: true}
+	srv := ctrl.server(t)
+
+	c, err := NewClientWithConfig(context.Background(), Config{
+		URL: srv.URL, Username: "admin", Password: "secret", TOTPSecret: fast, SkipTLSVerify: true,
+	})
+	if err != nil {
+		t.Fatalf("NewClientWithConfig: %v", err)
+	}
+	if c.token != "tok-2fa" {
+		t.Errorf("token = %q, want a session after retrying", c.token)
+	}
+	if len(ctrl.codesSeen) != 2 {
+		t.Fatalf("sent %d codes, want 2 (the spent one, then a fresh one)", len(ctrl.codesSeen))
+	}
+	if ctrl.codesSeen[0] == ctrl.codesSeen[1] {
+		t.Errorf("retried with the same code %q; the controller already refused it", ctrl.codesSeen[0])
+	}
+}
+
+// Retrying is bounded: a genuinely wrong secret must not walk the account into
+// a lock, one code per run.
+func TestLoginStopsAfterTheRetry(t *testing.T) {
+	fast := "otpauth://totp/x?secret=" + rfc6238Seed + "&period=1"
+	ctrl := &mfaController{secret: fast, rejectCode: true}
+	srv := ctrl.server(t)
+
+	_, err := NewClientWithConfig(context.Background(), Config{
+		URL: srv.URL, Username: "admin", Password: "secret", TOTPSecret: fast, SkipTLSVerify: true,
+	})
+	if err == nil {
+		t.Fatal("login succeeded with a rejected code, want an error")
+	}
+	if len(ctrl.codesSeen) != 2 {
+		t.Fatalf("sent %d codes, want exactly 2 — more walks the account into a lock", len(ctrl.codesSeen))
+	}
+	if !strings.Contains(err.Error(), "clock") {
+		t.Errorf("error %q does not point at the likely causes", err)
+	}
+}
+
+// When the controller *does* report its budget and it is nearly spent, stop at
+// the first rejection instead of taking another attempt.
+func TestLoginStopsRetryingWhenAttemptsRunLow(t *testing.T) {
+	remaining := 2
+	ctrl := &mfaController{secret: rfc6238Seed, rejectCode: true, remainAttempts: &remaining}
 	srv := ctrl.server(t)
 
 	_, err := NewClientWithConfig(context.Background(), Config{
@@ -183,10 +251,10 @@ func TestLoginDoesNotRetryARejectedCode(t *testing.T) {
 		t.Fatal("login succeeded with a rejected code, want an error")
 	}
 	if len(ctrl.codesSeen) != 1 {
-		t.Fatalf("sent %d codes; a rejected code must not be retried, the controller locks the account", len(ctrl.codesSeen))
+		t.Errorf("sent %d codes; with the budget nearly gone it must stop at 1", len(ctrl.codesSeen))
 	}
-	if !strings.Contains(err.Error(), "clock") {
-		t.Errorf("error %q does not point at the likely causes", err)
+	if !strings.Contains(err.Error(), "1 attempts left") {
+		t.Errorf("error %q does not report the controller's remaining attempts", err)
 	}
 }
 
