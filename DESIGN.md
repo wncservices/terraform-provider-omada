@@ -94,7 +94,8 @@ answers step 2 above with a challenge instead of a token:
 
 ```
 POST /{omadacId}/api/v2/login  {"username","password"}
--> errorCode -30165, result {"MFAId": …, "supportedMFATypes": [3]}
+-> errorCode -30165, result {}          // 6.1.0.19; other builds carry
+                                        // "MFAId" and "supportedMFATypes"
 
 POST /{omadacId}/api/v2/checkMFACodeAndLogin
    {"username","password","code","MFAId","mfaType":3}
@@ -104,7 +105,10 @@ POST /{omadacId}/api/v2/checkMFACodeAndLogin
 Learned from the controller's own login page (`modules/login/{models,controllers}`
 under the UI's static assets), which is the only description of it that exists.
 `mfaType` is `2` for an emailed code and `3` for an authenticator app; the UI
-sends `-30138` down the same path as `-30165`. A wrong code returns `-30139`
+sends `-30138` down the same path as `-30165`. Both challenge fields are
+optional — a live OC200 returns an empty result, and the login page falls back
+to an empty `MFAId` and an authenticator-app code, which the controller
+accepts. A wrong code returns `-30139`
 with `result.codeRemainAttempts`, counting down to a temporary account lock.
 
 Three consequences shape the implementation:

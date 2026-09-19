@@ -20,8 +20,12 @@ import (
 type mfaController struct {
 	secret string // base32, what the account was enrolled with
 
+	// mfaID is what the challenge carries and expects echoed back. Empty
+	// reproduces a live 6.1.0.19 OC200, whose challenge result is `{}`.
+	mfaID string
+
 	// supportedMFATypes is what the challenge advertises. Empty means the
-	// field is omitted, as some builds do.
+	// field is omitted, which is also what the live controller does.
 	supportedMFATypes []int
 
 	// rejectCode forces the "wrong code" answer, for the failure paths.
@@ -43,7 +47,10 @@ func (m *mfaController) server(t *testing.T) *httptest.Server {
 
 	mux.HandleFunc("/abc123/api/v2/login", func(w http.ResponseWriter, _ *http.Request) {
 		m.loginAttempts++
-		result := map[string]any{"MFAId": "mfa-1"}
+		result := map[string]any{}
+		if m.mfaID != "" {
+			result["MFAId"] = m.mfaID
+		}
 		if len(m.supportedMFATypes) > 0 {
 			result["supportedMFATypes"] = m.supportedMFATypes
 		}
@@ -64,7 +71,7 @@ func (m *mfaController) server(t *testing.T) *httptest.Server {
 		}
 		m.codesSeen = append(m.codesSeen, body.Code)
 
-		if body.MFAId != "mfa-1" || body.MFAType != mfaTypeTOTP || body.Username != "admin" || body.Password != "secret" {
+		if body.MFAId != m.mfaID || body.MFAType != mfaTypeTOTP || body.Username != "admin" || body.Password != "secret" {
 			writeEnvelope(w, -30109, "Invalid username or password.", nil)
 			return
 		}
@@ -85,8 +92,25 @@ func (m *mfaController) server(t *testing.T) *httptest.Server {
 	return srv
 }
 
+// The live shape: the challenge result is `{}`, and the code alone completes
+// the login.
+func TestLoginAnswersTOTPChallengeWithoutAnMFAId(t *testing.T) {
+	ctrl := &mfaController{secret: rfc6238Seed}
+	srv := ctrl.server(t)
+
+	c, err := NewClientWithConfig(context.Background(), Config{
+		URL: srv.URL, Username: "admin", Password: "secret", TOTPSecret: rfc6238Seed, SkipTLSVerify: true,
+	})
+	if err != nil {
+		t.Fatalf("NewClientWithConfig: %v", err)
+	}
+	if c.token != "tok-2fa" {
+		t.Errorf("token = %q, want the one issued after the 2FA step", c.token)
+	}
+}
+
 func TestLoginAnswersTOTPChallenge(t *testing.T) {
-	ctrl := &mfaController{secret: rfc6238Seed, supportedMFATypes: []int{mfaTypeTOTP}}
+	ctrl := &mfaController{secret: rfc6238Seed, mfaID: "mfa-1", supportedMFATypes: []int{mfaTypeTOTP}}
 	srv := ctrl.server(t)
 
 	c, err := NewClientWithConfig(context.Background(), Config{

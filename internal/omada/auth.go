@@ -29,8 +29,12 @@ type loginResult struct {
 }
 
 // mfaChallenge is the payload the controller returns *instead of* a token when
-// the account is subject to two-factor authentication. `MFAId` identifies the
-// half-finished login and has to be echoed back with the code.
+// the account is subject to two-factor authentication.
+//
+// Both fields are optional, and on a 6.1.0.19 OC200 the whole result is `{}`:
+// the login page reads `MFAId` and `supportedMFATypes` defensively and falls
+// back to an empty id and an authenticator-app code. Verified live — an empty
+// `MFAId` is accepted by checkMFACodeAndLogin and returns a session token.
 type mfaChallenge struct {
 	MFAId             string `json:"MFAId"`
 	SupportedMFATypes []int  `json:"supportedMFATypes"`
@@ -195,10 +199,6 @@ func (c *Client) answerMFAChallenge(ctx context.Context, env *APIResponse) (*API
 			return nil, fmt.Errorf("decoding 2FA challenge: %w", err)
 		}
 	}
-	if challenge.MFAId == "" {
-		return nil, fmt.Errorf("login failed: %w. The controller asked for two-factor authentication but returned no MFAId to answer it with",
-			challengeErr)
-	}
 	if len(challenge.SupportedMFATypes) > 0 && !slices.Contains(challenge.SupportedMFATypes, mfaTypeTOTP) {
 		names := make([]string, 0, len(challenge.SupportedMFATypes))
 		for _, t := range challenge.SupportedMFATypes {
@@ -213,6 +213,8 @@ func (c *Client) answerMFAChallenge(ctx context.Context, env *APIResponse) (*API
 		return nil, err
 	}
 
+	// MFAId is echoed back as-is, empty included: that is what the login page
+	// sends when the challenge omitted it, which is the live 6.1 behaviour.
 	resp, err := c.postAuthJSON(ctx, "/api/v2/checkMFACodeAndLogin", map[string]any{
 		"username": c.username,
 		"password": c.password,
