@@ -46,5 +46,10 @@ This is **not** the admin password: the controller refuses a web session on the 
 - `password` (String, Sensitive) Controller admin password. May also be set via `OMADA_PASSWORD`.
 - `site` (String) Default site name used by site-scoped resources when they don't set one explicitly. Defaults to the controller's **primary** site (real sites are often named e.g. `Home`, not `Default`). May also be set via `OMADA_SITE`.
 - `skip_tls_verify` (Boolean) Skip TLS verification of the controller's (typically self-signed) certificate. Defaults to `true`. May also be set via `OMADA_SKIP_TLS_VERIFY`.
+- `totp_secret` (String, Sensitive) Authenticator-app (TOTP) secret for `username`, used only when the controller enforces two-factor authentication. Accepts the bare base32 secret or the whole `otpauth://` URL behind the enrolment QR code. May also be set via `OMADA_TOTP_SECRET`.
+
+A controller with 2FA enforced (*Global View → Settings → Account Security*) refuses a password-only login with error `-30165`, which no amount of retrying fixes. With this set, the provider answers the challenge the way the controller's own login page does. Only authenticator-app codes work — an account set up for emailed codes cannot be automated.
+
+~> **This weakens the second factor for this account.** The secret sits next to the password, so anything that can read one can read the other. It is worth it to keep 2FA enforced for every human account on the controller; it is not a substitute for a dedicated, least-privilege account.
 - `url` (String) Base URL of the Omada controller, e.g. `https://10.0.0.2:443`. May also be set via `OMADA_URL`.
 - `username` (String) Controller admin username. May also be set via `OMADA_USERNAME`.

@@ -29,6 +29,7 @@ type OmadaProviderModel struct {
 	URL           types.String `tfsdk:"url"`
 	Username      types.String `tfsdk:"username"`
 	Password      types.String `tfsdk:"password"`
+	TOTPSecret    types.String `tfsdk:"totp_secret"`
 	SkipTLSVerify types.Bool   `tfsdk:"skip_tls_verify"`
 	Site          types.String `tfsdk:"site"`
 
@@ -63,6 +64,23 @@ func (p *OmadaProvider) Schema(_ context.Context, _ provider.SchemaRequest, resp
 				MarkdownDescription: "Controller admin password. May also be set via `OMADA_PASSWORD`.",
 				Optional:            true,
 				Sensitive:           true,
+			},
+			"totp_secret": schema.StringAttribute{
+				Optional:  true,
+				Sensitive: true,
+				MarkdownDescription: "Authenticator-app (TOTP) secret for `username`, used only when the " +
+					"controller enforces two-factor authentication. Accepts the bare base32 secret or the " +
+					"whole `otpauth://` URL behind the enrolment QR code. May also be set via " +
+					"`OMADA_TOTP_SECRET`.\n\n" +
+					"A controller with 2FA enforced (*Global View → Settings → Account Security*) refuses a " +
+					"password-only login with error `-30165`, which no amount of retrying fixes. With this " +
+					"set, the provider answers the challenge the way the controller's own login page does. " +
+					"Only authenticator-app codes work — an account set up for emailed codes cannot be " +
+					"automated.\n\n" +
+					"~> **This weakens the second factor for this account.** The secret sits next to the " +
+					"password, so anything that can read one can read the other. It is worth it to keep 2FA " +
+					"enforced for every human account on the controller; it is not a substitute for a " +
+					"dedicated, least-privilege account.",
 			},
 			"openapi_client_id": schema.StringAttribute{
 				Optional: true,
@@ -101,6 +119,7 @@ func (p *OmadaProvider) Configure(ctx context.Context, req provider.ConfigureReq
 	url := firstNonEmpty(config.URL, os.Getenv("OMADA_URL"))
 	username := firstNonEmpty(config.Username, os.Getenv("OMADA_USERNAME"))
 	password := firstNonEmpty(config.Password, os.Getenv("OMADA_PASSWORD"))
+	totpSecret := firstNonEmpty(config.TOTPSecret, os.Getenv("OMADA_TOTP_SECRET"))
 
 	if url == "" {
 		resp.Diagnostics.AddAttributeError(pathRoot("url"), "Missing controller URL",
@@ -150,7 +169,15 @@ func (p *OmadaProvider) Configure(ctx context.Context, req provider.ConfigureReq
 		return
 	}
 
-	client, err := omada.NewClientWithOpenAPI(ctx, url, username, password, openAPIID, openAPISecret, skipTLS)
+	client, err := omada.NewClientWithConfig(ctx, omada.Config{
+		URL:                 url,
+		Username:            username,
+		Password:            password,
+		TOTPSecret:          totpSecret,
+		OpenAPIClientID:     openAPIID,
+		OpenAPIClientSecret: openAPISecret,
+		SkipTLSVerify:       skipTLS,
+	})
 	if err != nil {
 		resp.Diagnostics.AddError("Unable to connect to the Omada controller", err.Error())
 		return

@@ -9,7 +9,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"strings"
+	"time"
 )
 
 // ControllerInfo is the subset of GET /api/info we need. omadacId prefixes
@@ -25,6 +27,40 @@ type ControllerInfo struct {
 type loginResult struct {
 	Token string `json:"token"`
 }
+
+// mfaChallenge is the payload the controller returns *instead of* a token when
+// the account is subject to two-factor authentication. `MFAId` identifies the
+// half-finished login and has to be echoed back with the code.
+type mfaChallenge struct {
+	MFAId             string `json:"MFAId"`
+	SupportedMFATypes []int  `json:"supportedMFATypes"`
+}
+
+// The controller's 2FA error codes, as handled by its own login page:
+//
+//	-30165  2FA is required for this local user
+//	-30138  2FA is required (same handling in the UI; seen on other builds)
+//	-30139  the submitted code was wrong. `result.codeRemainAttempts` counts
+//	        down to a temporary account lock, so a retry loop is not safe.
+//
+// mfaTypeEmail/mfaTypeTOTP are the `mfaType` values the login page sends: a
+// code mailed to the account, or one from an authenticator app. Only TOTP can
+// be automated, so only TOTP is implemented here.
+const (
+	mfaTypeEmail = 2
+	mfaTypeTOTP  = 3
+)
+
+func isMFARequired(code int) bool {
+	return code == -30165 || code == -30138
+}
+
+// mfaGuidance ends every "cannot get past 2FA" error. Both ways out are
+// deliberate operator choices, so name both rather than implying the only fix
+// is to weaken the controller.
+const mfaGuidance = "Either enrol this account with an authenticator app and set the provider's `totp_secret` " +
+	"(or OMADA_TOTP_SECRET) to the secret behind its QR code, or turn off the controller-wide requirement at " +
+	"Global View -> Settings -> Account Security."
 
 // info fetches controller metadata (no auth required).
 func (c *Client) info(ctx context.Context) (*ControllerInfo, error) {
@@ -73,36 +109,23 @@ func (c *Client) login(ctx context.Context) error {
 	}
 	c.omadacID = inf.OmadacID
 
-	endpoint := fmt.Sprintf("%s/%s/api/v2/login", c.baseURL, c.omadacID)
-	body, err := json.Marshal(map[string]string{
+	env, err := c.postAuthJSON(ctx, "/api/v2/login", map[string]string{
 		"username": c.username,
 		"password": c.password,
 	})
 	if err != nil {
-		return fmt.Errorf("marshalling login body: %w", err)
+		return err
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, strings.NewReader(string(body)))
-	if err != nil {
-		return fmt.Errorf("building login request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := c.http.Do(req)
-	if err != nil {
-		return fmt.Errorf("POST login: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	raw, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return fmt.Errorf("reading login response: %w", err)
+	// A controller with 2FA enforced answers the password with a challenge
+	// rather than a token, and the session only exists after it is answered.
+	if isMFARequired(env.ErrorCode) {
+		env, err = c.answerMFAChallenge(ctx, env)
+		if err != nil {
+			return err
+		}
 	}
 
-	var env APIResponse
-	if err := json.Unmarshal(raw, &env); err != nil {
-		return fmt.Errorf("decoding login envelope (http %d): %w", resp.StatusCode, err)
-	}
 	if env.ErrorCode != 0 {
 		return fmt.Errorf("login failed: %w", &APIError{Code: env.ErrorCode, Msg: env.Msg})
 	}
@@ -116,6 +139,131 @@ func (c *Client) login(ctx context.Context) error {
 	}
 	c.token = lr.Token
 	return nil
+}
+
+// postAuthJSON posts a JSON body to one of the unauthenticated /api/v2 login
+// endpoints and returns the decoded envelope. A non-zero errorCode is handed
+// back rather than turned into an error, because the login exchange gives
+// several of them specific meanings.
+func (c *Client) postAuthJSON(ctx context.Context, path string, payload any) (*APIResponse, error) {
+	endpoint := fmt.Sprintf("%s/%s%s", c.baseURL, c.omadacID, path)
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return nil, fmt.Errorf("marshalling %s body: %w", path, err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, strings.NewReader(string(body)))
+	if err != nil {
+		return nil, fmt.Errorf("building %s request: %w", path, err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("POST %s: %w", path, err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	raw, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("reading %s response: %w", path, err)
+	}
+
+	var env APIResponse
+	if err := json.Unmarshal(raw, &env); err != nil {
+		return nil, fmt.Errorf("decoding %s envelope (http %d): %w", path, resp.StatusCode, err)
+	}
+	return &env, nil
+}
+
+// answerMFAChallenge completes a login the controller stopped for two-factor
+// authentication, by sending the current authenticator-app code back with the
+// MFAId that identifies the half-finished login. This is the same exchange the
+// controller's login page performs.
+func (c *Client) answerMFAChallenge(ctx context.Context, env *APIResponse) (*APIResponse, error) {
+	challengeErr := &APIError{Code: env.ErrorCode, Msg: env.Msg}
+
+	if c.totp == nil {
+		return nil, fmt.Errorf("login failed: %w. This account is subject to two-factor authentication and no TOTP secret is configured. %s",
+			challengeErr, mfaGuidance)
+	}
+
+	var challenge mfaChallenge
+	if len(env.Result) > 0 {
+		if err := json.Unmarshal(env.Result, &challenge); err != nil {
+			return nil, fmt.Errorf("decoding 2FA challenge: %w", err)
+		}
+	}
+	if challenge.MFAId == "" {
+		return nil, fmt.Errorf("login failed: %w. The controller asked for two-factor authentication but returned no MFAId to answer it with",
+			challengeErr)
+	}
+	if len(challenge.SupportedMFATypes) > 0 && !slices.Contains(challenge.SupportedMFATypes, mfaTypeTOTP) {
+		names := make([]string, 0, len(challenge.SupportedMFATypes))
+		for _, t := range challenge.SupportedMFATypes {
+			names = append(names, mfaTypeName(t))
+		}
+		return nil, fmt.Errorf("login failed: %w. This account's 2FA methods (%s) do not include an authenticator app, and only authenticator-app codes can be generated without a human. %s",
+			challengeErr, strings.Join(names, ", "), mfaGuidance)
+	}
+
+	code, err := c.nextTOTPCode(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := c.postAuthJSON(ctx, "/api/v2/checkMFACodeAndLogin", map[string]any{
+		"username": c.username,
+		"password": c.password,
+		"code":     code,
+		"MFAId":    challenge.MFAId,
+		"mfaType":  mfaTypeTOTP,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if resp.ErrorCode == -30139 {
+		// Do not retry: the controller counts these down to an account lock.
+		return nil, fmt.Errorf("login failed: %w. The controller rejected the generated code — check that the TOTP secret belongs to this account and that this machine's clock is accurate. Repeated failures lock the account temporarily",
+			&APIError{Code: resp.ErrorCode, Msg: resp.Msg})
+	}
+
+	c.lastTOTPCode = code
+	return resp, nil
+}
+
+// nextTOTPCode returns a code that has not been sent before. A re-login after a
+// session timeout can fall in the same 30-second window as the previous one,
+// and a controller is within its rights to refuse a replayed code — better to
+// wait out the window than to spend one of the account's few attempts.
+func (c *Client) nextTOTPCode(ctx context.Context) (string, error) {
+	now := time.Now()
+	if code := c.totp.codeAt(now); code != c.lastTOTPCode {
+		return code, nil
+	}
+
+	timer := time.NewTimer(time.Until(c.totp.nextWindow(now)))
+	defer timer.Stop()
+
+	select {
+	case <-ctx.Done():
+		return "", fmt.Errorf("waiting for a fresh 2FA code: %w", ctx.Err())
+	case <-timer.C:
+	}
+	return c.totp.codeAt(time.Now()), nil
+}
+
+// mfaTypeName renders a controller mfaType for an error message.
+func mfaTypeName(t int) string {
+	switch t {
+	case mfaTypeEmail:
+		return "email"
+	case mfaTypeTOTP:
+		return "authenticator app"
+	default:
+		return fmt.Sprintf("type %d", t)
+	}
 }
 
 // ControllerVersion returns cached controller metadata (fetched at login).

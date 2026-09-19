@@ -87,6 +87,44 @@ Each resource is one file in `internal/provider/<name>_resource.go` with a match
 6. `skip_tls_verify` (default **true**) installs a permissive TLS transport —
    controllers ship self-signed certs. This default is intentional; don't change it.
 
+### 2.2a Two-factor authentication at login (`internal/omada/totp.go`)
+
+A controller with 2FA enforced (*Global View → Settings → Account Security*)
+answers step 2 above with a challenge instead of a token:
+
+```
+POST /{omadacId}/api/v2/login  {"username","password"}
+-> errorCode -30165, result {"MFAId": …, "supportedMFATypes": [3]}
+
+POST /{omadacId}/api/v2/checkMFACodeAndLogin
+   {"username","password","code","MFAId","mfaType":3}
+-> result {"token": …, "roleType": …}          // the same token as a plain login
+```
+
+Learned from the controller's own login page (`modules/login/{models,controllers}`
+under the UI's static assets), which is the only description of it that exists.
+`mfaType` is `2` for an emailed code and `3` for an authenticator app; the UI
+sends `-30138` down the same path as `-30165`. A wrong code returns `-30139`
+with `result.codeRemainAttempts`, counting down to a temporary account lock.
+
+Three consequences shape the implementation:
+
+- **Only TOTP can be automated.** An emailed code needs a human, so an account
+  whose `supportedMFATypes` lacks `3` fails with an error naming its actual
+  methods rather than a generic rejection.
+- **Never retry a rejected code.** `-30139` is terminal here: retrying spends
+  the account's remaining attempts and locks it. A malformed secret is caught
+  when the client is built, before a code is ever sent.
+- **Never replay a code.** A re-login after a session timeout can land in the
+  same 30-second window as the previous one, so `nextTOTPCode` waits for the
+  next window rather than resending the code the controller already saw.
+
+`totp_secret` is optional and documented as the weakening it is: the secret
+lives beside the password, so it buys automation for one account rather than
+real second-factor protection. What it preserves is 2FA *enforcement* for every
+human account on the controller, which is otherwise the thing an operator has
+to give up to run this provider at all.
+
 ### 2.3 Sites (`internal/omada/sites.go`)
 
 Everything is site-scoped. `ResolveSiteID(ctx, name)` maps a site *name* to its ID,

@@ -32,10 +32,17 @@ type Client struct {
 	password string
 
 	http *http.Client
-	mu   sync.Mutex // guards omadacID + token during (re-)login
+	mu   sync.Mutex // guards omadacID + token + TOTP state during (re-)login
 
 	omadacID string // controller id, prefixes every /api/v2 path
 	token    string // CSRF token, sent as the Csrf-Token header
+
+	// totp is the parsed authenticator secret used to answer a two-factor
+	// challenge at login (see totp.go). Nil when the account is not subject to
+	// 2FA, which is the common case. lastTOTPCode is the code most recently
+	// sent, kept so a re-login never replays one.
+	totp         *totpConfig
+	lastTOTPCode string
 
 	// openAPI holds the separate client-credentials used by the controller's
 	// Open API (see openapi.go). Nil when none were configured, in which case
@@ -79,14 +86,50 @@ func isSessionExpired(code int) bool {
 	}
 }
 
+// Config is the full set of connection settings for a Client. Only URL,
+// Username and Password are always needed; the rest cover controllers that
+// enforce two-factor authentication or capabilities served only by the Open API.
+type Config struct {
+	URL      string
+	Username string
+	Password string
+
+	// TOTPSecret is the authenticator-app secret for an account subject to
+	// two-factor authentication — either the bare base32 secret or the whole
+	// `otpauth://` URL from the controller's enrolment QR code. Empty when the
+	// account does not use 2FA.
+	TOTPSecret string
+
+	OpenAPIClientID     string
+	OpenAPIClientSecret string
+
+	SkipTLSVerify bool
+}
+
 // NewClient builds a client and performs the initial info + login handshake.
 func NewClient(ctx context.Context, rawURL, username, password string, skipTLSVerify bool) (*Client, error) {
-	return NewClientWithOpenAPI(ctx, rawURL, username, password, "", "", skipTLSVerify)
+	return NewClientWithConfig(ctx, Config{
+		URL: rawURL, Username: username, Password: password, SkipTLSVerify: skipTLSVerify,
+	})
 }
 
 // NewClientWithOpenAPI is NewClient plus the Open API client-credentials. Pass
 // empty strings for those to leave the Open API unconfigured.
 func NewClientWithOpenAPI(ctx context.Context, rawURL, username, password, openAPIClientID, openAPIClientSecret string, skipTLSVerify bool) (*Client, error) {
+	return NewClientWithConfig(ctx, Config{
+		URL: rawURL, Username: username, Password: password,
+		OpenAPIClientID: openAPIClientID, OpenAPIClientSecret: openAPIClientSecret,
+		SkipTLSVerify: skipTLSVerify,
+	})
+}
+
+// NewClientWithConfig builds a client from the full configuration and performs
+// the initial info + login handshake.
+func NewClientWithConfig(ctx context.Context, cfg Config) (*Client, error) {
+	rawURL, username, password := cfg.URL, cfg.Username, cfg.Password
+	openAPIClientID, openAPIClientSecret := cfg.OpenAPIClientID, cfg.OpenAPIClientSecret
+	skipTLSVerify := cfg.SkipTLSVerify
+
 	base := strings.TrimRight(rawURL, "/")
 	if _, err := url.Parse(base); err != nil {
 		return nil, fmt.Errorf("invalid controller url %q: %w", rawURL, err)
@@ -114,6 +157,16 @@ func NewClientWithOpenAPI(ctx context.Context, rawURL, username, password, openA
 
 	if openAPIClientID != "" || openAPIClientSecret != "" {
 		c.openAPI = &openAPIAuth{clientID: openAPIClientID, clientSecret: openAPIClientSecret}
+	}
+
+	// Parse the secret up front: a typo should fail with "that is not a base32
+	// secret", not as a rejected code that eats one of the account's attempts.
+	if cfg.TOTPSecret != "" {
+		totp, err := parseTOTPSecret(cfg.TOTPSecret)
+		if err != nil {
+			return nil, err
+		}
+		c.totp = totp
 	}
 
 	if err := c.login(ctx); err != nil {
