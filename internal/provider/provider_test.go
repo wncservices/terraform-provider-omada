@@ -668,6 +668,11 @@ func newMockController(t *testing.T) *httptest.Server {
 					return
 				}
 			}
+			// Confirmed live (6.2.14.11): an SSID created without a VLAN
+			// binding reads back with an empty customConfig, no lanNetworkId.
+			if in["vlanSetting"] == nil {
+				in["vlanSetting"] = map[string]any{"mode": 0, "customConfig": map[string]any{}}
+			}
 			id := fmt.Sprintf("ssid-%d", ssidNext)
 			ssidNext++
 			in["id"] = id
