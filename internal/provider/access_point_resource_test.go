@@ -5,6 +5,7 @@ package provider
 
 import (
 	"fmt"
+	"regexp"
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
@@ -114,9 +115,6 @@ resource "omada_access_point" "this" {
 				// controller's dashes. Same textual-comparison limitation as
 				// omada_gateway and omada_switch_port.
 				ImportStateVerifyIgnore: []string{"mac"},
-			},
-		},
-	})
 			},
 		},
 	})
