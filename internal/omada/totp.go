@@ -120,9 +120,11 @@ func (t *totpConfig) codeAt(at time.Time) string {
 	sum := mac.Sum(nil)
 
 	offset := sum[len(sum)-1] & 0x0f
-	value := binary.BigEndian.Uint32(sum[offset:offset+4]) & 0x7fffffff
+	value := uint64(binary.BigEndian.Uint32(sum[offset:offset+4]) & 0x7fffffff)
 
-	mod := uint32(1)
+	// uint64, not uint32: digits can be up to 10 (see parseTOTPSecret), and
+	// 10^10 overflows a uint32.
+	mod := uint64(1)
 	for range t.digits {
 		mod *= 10
 	}

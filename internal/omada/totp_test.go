@@ -76,6 +76,22 @@ func TestParseTOTPSecretAcceptsTheFormsPeopleActuallyPasteIn(t *testing.T) {
 	}
 }
 
+// digits=10 is the otpauth maximum parseTOTPSecret allows, and 10^10 overflows
+// a uint32 modulus (wraps to 1,410,065,408), so this only passes with a wider
+// modulus. Expected value computed independently with math/big, not by reading
+// codeAt's own arithmetic back.
+func TestTOTPCodeAtTenDigitsDoesNotOverflow(t *testing.T) {
+	cfg, err := parseTOTPSecret(rfc6238Seed)
+	if err != nil {
+		t.Fatalf("parseTOTPSecret: %v", err)
+	}
+	cfg.digits = 10
+
+	if got, want := cfg.codeAt(time.Unix(1111111109, 0)), "0907081804"; got != want {
+		t.Errorf("codeAt with digits=10 = %s, want %s", got, want)
+	}
+}
+
 func TestParseTOTPSecretHonoursOtpauthParameters(t *testing.T) {
 	cfg, err := parseTOTPSecret("otpauth://totp/x?secret=" + rfc6238Seed + "&digits=8&period=60&algorithm=SHA256")
 	if err != nil {

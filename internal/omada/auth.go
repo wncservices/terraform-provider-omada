@@ -256,6 +256,15 @@ func (c *Client) answerMFAChallenge(ctx context.Context, env *APIResponse) (*API
 		if len(resp.Result) > 0 {
 			_ = json.Unmarshal(resp.Result, &rejection)
 		}
+
+		// The controller has already locked the account: a retry would just
+		// draw another lock error, so stop here rather than spend the second
+		// attempt against it.
+		if rejection.LockedMinutes != nil {
+			return nil, fmt.Errorf("login failed: %w. The controller has locked this account for %d minute(s) after too many rejected codes. Check that the TOTP secret belongs to this account and that this machine's clock is accurate",
+				&APIError{Code: resp.ErrorCode, Msg: resp.Msg}, *rejection.LockedMinutes)
+		}
+
 		remaining := "an unknown number of"
 		if rejection.CodeRemainAttempts != nil {
 			remaining = fmt.Sprintf("%d", *rejection.CodeRemainAttempts)

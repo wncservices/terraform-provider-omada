@@ -39,6 +39,10 @@ type mfaController struct {
 	// down — the controller's own budget before it locks the account.
 	remainAttempts *int
 
+	// lockedMinutes, when set, is reported with each rejection: the
+	// controller has already locked the account.
+	lockedMinutes *int
+
 	loginAttempts int
 	codesSeen     []string
 }
@@ -95,6 +99,9 @@ func (m *mfaController) server(t *testing.T) *httptest.Server {
 			if m.remainAttempts != nil {
 				*m.remainAttempts--
 				result["codeRemainAttempts"] = *m.remainAttempts
+			}
+			if m.lockedMinutes != nil {
+				result["lockedMinutes"] = *m.lockedMinutes
 			}
 			writeEnvelope(w, -30139, "Invalid code.", result)
 			return
@@ -255,6 +262,28 @@ func TestLoginStopsRetryingWhenAttemptsRunLow(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "1 attempts left") {
 		t.Errorf("error %q does not report the controller's remaining attempts", err)
+	}
+}
+
+// When the controller reports the account is already locked, stop immediately
+// rather than spending the second attempt against a lock that is already in
+// place.
+func TestLoginStopsImmediatelyWhenAccountIsLocked(t *testing.T) {
+	locked := 15
+	ctrl := &mfaController{secret: rfc6238Seed, rejectCode: true, lockedMinutes: &locked}
+	srv := ctrl.server(t)
+
+	_, err := NewClientWithConfig(context.Background(), Config{
+		URL: srv.URL, Username: "admin", Password: "secret", TOTPSecret: rfc6238Seed, SkipTLSVerify: true,
+	})
+	if err == nil {
+		t.Fatal("login succeeded with a locked account, want an error")
+	}
+	if len(ctrl.codesSeen) != 1 {
+		t.Errorf("sent %d codes; an already-locked account must not be retried", len(ctrl.codesSeen))
+	}
+	if !strings.Contains(err.Error(), "15 minute") {
+		t.Errorf("error %q does not report the lockout duration", err)
 	}
 }
 
