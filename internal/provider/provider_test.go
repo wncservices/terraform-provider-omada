@@ -1306,6 +1306,50 @@ func newMockController(t *testing.T) *httptest.Server {
 			return
 		}
 		writeEnvelope(w, 0, "", apDoc)
+		writeEnvelope(w, 0, "", apDoc)
+	})
+
+	// A single-band AP: no radioSetting5g key at all, not merely a zero value —
+	// the shape a real single-band model (or a band that isn't adopted) reports.
+	// Exists to catch a resource that silently drops a radio_5g_* config value
+	// instead of erroring when the device has nothing to compare it against.
+	apDoc2G := map[string]any{
+		"mac": "AA-BB-CC-11-22-33", "name": "AA-BB-CC-11-22-33",
+		"model": "EAP225-Outdoor", "ip": "192.168.53.101",
+		"ledSetting": float64(2), "lldpEnable": float64(2),
+		"ofdmaEnable2g": true,
+		"snmp":          map[string]any{"location": "", "contact": ""},
+		"radioSetting2g": map[string]any{
+			"radioEnable": true, "channelWidth": "4", "channel": "0",
+			"txPower": float64(25), "txPowerLevel": float64(4),
+			"freq": float64(0), "wirelessMode": float64(-2),
+		},
+		"lbSetting2g":   map[string]any{"lbEnable": false, "maxClients": float64(1)},
+		"rssiSetting2g": map[string]any{"rssiEnable": false, "threshold": float64(-95)},
+	}
+	mux.HandleFunc("/abc123/api/v2/sites/site-1/eaps/AA-BB-CC-11-22-33", func(w http.ResponseWriter, r *http.Request) {
+		if !requireToken(w, r) {
+			return
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		switch r.Method {
+		case http.MethodGet:
+		case http.MethodPatch:
+			var in map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&in)
+			if _, sent := in["radioSetting5g"]; sent {
+				writeEnvelope(w, -1001, "no 5g radio on this device", nil)
+				return
+			}
+			for k, v := range in {
+				apDoc2G[k] = v
+			}
+		default: // PUT, POST
+			writeEnvelope(w, -1600, "Unsupported request path.", nil)
+			return
+		}
+		writeEnvelope(w, 0, "", apDoc2G)
 	})
 
 	mux.HandleFunc("/abc123/api/v2/sites/site-1/gateways/F0-09-0D-D0-97-76", func(w http.ResponseWriter, r *http.Request) {
