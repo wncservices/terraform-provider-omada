@@ -277,21 +277,24 @@ func (r *accessPointResource) resolveSite(ctx context.Context, m accessPointReso
 	return site.ID, site.Name
 }
 
-// radioBody returns the whole radio document to send, or nil when nothing the
-// practitioner configured actually differs from the device.
-//
-// The nil case is the important one. The controller restarts a radio whenever
-// its document is written — even when every value in it is identical — so a
-// resource that wrote radios unconditionally would drop that band's clients on
-// every apply, including applies that change nothing about the radio. Comparing
-// first is what makes a no-op apply silent.
-//
 // channel is carried through from the device and never from the plan: it is
 // read-only (see omada.AccessPoint), and UpdateAccessPoint refuses a body that
 // sets it.
-func radioBody(cur *omada.RadioSetting, enable types.Bool, width types.String, power, level types.Int64) map[string]any {
+//
+// cur is nil when the device reports no radio for this band at all (e.g.
+// single-band hardware with no 5GHz radio). Silently returning nil there, the
+// same as the no-op case, would drop a practitioner's configured value from
+// the PATCH without error; the subsequent refresh then writes state back with
+// that value false/empty, contradicting the config. So a configured value
+// with cur == nil is an error instead.
+func radioBody(band string, cur *omada.RadioSetting, enable types.Bool, width types.String, power, level types.Int64) (map[string]any, error) {
 	if cur == nil {
-		return nil
+		if known(enable) || known(width) || known(power) || known(level) {
+			return nil, fmt.Errorf("radio_%s_* is configured, but the device reports no %s radio "+
+				"at all (single-band hardware, or that band is not adopted) — remove it from the "+
+				"configuration", band, band)
+		}
+		return nil, nil
 	}
 	next := *cur
 	if known(enable) {
@@ -307,7 +310,7 @@ func radioBody(cur *omada.RadioSetting, enable types.Bool, width types.String, p
 		next.TXPowerLevel = int(level.ValueInt64())
 	}
 	if next == *cur {
-		return nil
+		return nil, nil
 	}
 	return map[string]any{
 		"radioEnable":  next.RadioEnable,
@@ -316,7 +319,7 @@ func radioBody(cur *omada.RadioSetting, enable types.Bool, width types.String, p
 		"txPowerLevel": next.TXPowerLevel,
 		"freq":         next.Freq,
 		"wirelessMode": next.WirelessMode,
-	}
+	}, nil
 }
 
 // changed builds the PATCH body from the attributes the practitioner set.
