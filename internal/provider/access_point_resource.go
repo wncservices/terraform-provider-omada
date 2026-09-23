@@ -320,7 +320,7 @@ func radioBody(cur *omada.RadioSetting, enable types.Bool, width types.String, p
 }
 
 // changed builds the PATCH body from the attributes the practitioner set.
-func (r *accessPointResource) changed(plan accessPointResourceModel, cur *omada.AccessPoint) map[string]any {
+func (r *accessPointResource) changed(plan accessPointResourceModel, cur *omada.AccessPoint) (map[string]any, error) {
 	out := map[string]any{}
 
 	if known(plan.Name) {
@@ -356,13 +356,21 @@ func (r *accessPointResource) changed(plan accessPointResourceModel, cur *omada.
 		out["snmp"] = map[string]any{"location": loc, "contact": contact}
 	}
 
-	if b := radioBody(cur.RadioSetting2G, plan.Radio2GEnable, plan.Radio2GChannelWidth,
-		plan.Radio2GTXPower, plan.Radio2GTXPowerLevel); b != nil {
-		out["radioSetting2g"] = b
+	b2g, err := radioBody("2g", cur.RadioSetting2G, plan.Radio2GEnable, plan.Radio2GChannelWidth,
+		plan.Radio2GTXPower, plan.Radio2GTXPowerLevel)
+	if err != nil {
+		return nil, err
 	}
-	if b := radioBody(cur.RadioSetting5G, plan.Radio5GEnable, plan.Radio5GChannelWidth,
-		plan.Radio5GTXPower, plan.Radio5GTXPowerLevel); b != nil {
-		out["radioSetting5g"] = b
+	if b2g != nil {
+		out["radioSetting2g"] = b2g
+	}
+	b5g, err := radioBody("5g", cur.RadioSetting5G, plan.Radio5GEnable, plan.Radio5GChannelWidth,
+		plan.Radio5GTXPower, plan.Radio5GTXPowerLevel)
+	if err != nil {
+		return nil, err
+	}
+	if b5g != nil {
+		out["radioSetting5g"] = b5g
 	}
 
 	if known(plan.LoadBalance2GEnable) || known(plan.LoadBalance2GMax) {
@@ -378,7 +386,7 @@ func (r *accessPointResource) changed(plan accessPointResourceModel, cur *omada.
 		out["rssiSetting5g"] = rssiBody(cur.RSSI5G, plan.RSSI5GEnable, plan.RSSI5GThreshold)
 	}
 
-	return out
+	return out, nil
 }
 
 func lbBody(cur *omada.LoadBalanceSetting, enable types.Bool, max types.Int64) map[string]any {
