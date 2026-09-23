@@ -486,7 +486,12 @@ func (r *accessPointResource) apply(ctx context.Context, plan *accessPointResour
 		diags.AddError("Unable to read access point", err.Error())
 		return
 	}
-	if body := r.changed(*plan, cur); len(body) > 0 {
+	body, err := r.changed(*plan, cur)
+	if err != nil {
+		diags.AddError("Invalid access point configuration", err.Error())
+		return
+	}
+	if len(body) > 0 {
 		if err := r.data.client.UpdateAccessPoint(ctx, siteID, mac, body); err != nil {
 			diags.AddError("Unable to update access point", err.Error())
 			return
