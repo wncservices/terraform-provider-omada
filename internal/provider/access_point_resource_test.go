@@ -117,4 +117,48 @@ resource "omada_access_point" "this" {
 			},
 		},
 	})
+			},
+		},
+	})
+}
+
+// TestAccAccessPointResourceSingleBandRadio covers a device that reports no
+// 5GHz radio at all (single-band hardware, or that band not adopted) —
+// distinct from the dual-band mock AP's 0-valued fields above.
+//
+// Configuring radio_5g_* against it must error, not silently drop the value:
+// changed()/radioBody() previously returned nil (the same as "nothing to
+// send") whenever cur was nil, so the configured value never reached the
+// PATCH, and the subsequent refresh then wrote state back with it
+// false/empty — contradicting the config with no error at all.
+func TestAccAccessPointResourceSingleBandRadio(t *testing.T) {
+	srv := newMockController(t)
+
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				// No radio_5g_* configured: must not error just because the
+				// device has no 5GHz radio.
+				Config: testProviderConfig(srv.URL) + `
+resource "omada_access_point" "single" {
+  mac  = "aa:bb:cc:11:22:33"
+  name = "Yard"
+}`,
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("omada_access_point.single", "model", "EAP225-Outdoor"),
+					resource.TestCheckResourceAttr("omada_access_point.single", "radio_5g_enable", "false"),
+				),
+			},
+			{
+				Config: testProviderConfig(srv.URL) + `
+resource "omada_access_point" "single" {
+  mac               = "aa:bb:cc:11:22:33"
+  name              = "Yard"
+  radio_5g_tx_power = 20
+}`,
+				ExpectError: regexp.MustCompile(`device reports no 5g radio at all`),
+			},
+		},
+	})
 }
