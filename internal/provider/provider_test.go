@@ -668,6 +668,11 @@ func newMockController(t *testing.T) *httptest.Server {
 					return
 				}
 			}
+			// Confirmed live (6.2.14.11): an SSID created without a VLAN
+			// binding reads back with an empty customConfig, no lanNetworkId.
+			if in["vlanSetting"] == nil {
+				in["vlanSetting"] = map[string]any{"mode": 0, "customConfig": map[string]any{}}
+			}
 			id := fmt.Sprintf("ssid-%d", ssidNext)
 			ssidNext++
 			in["id"] = id
@@ -2296,6 +2301,103 @@ func newMockController(t *testing.T) *httptest.Server {
 		default:
 			writeEnvelope(w, -1600, "Unsupported request path.", nil)
 		}
+	})
+
+	// Controller settings: the one CONTROLLER-scoped document, so the path has
+	// no site in it. Two live behaviours are emulated because the provider
+	// depends on both:
+	//
+	//   - A section sent PARTIALLY is rejected. On the real controller
+	//     `general`, `deviceManage`, `loggingLevel` and `certificate` answer
+	//     -1/-1001 to a body carrying only some of their fields, so the
+	//     provider reads and sends each section whole. A regression that sent
+	//     a single changed field would pass a permissive mock and fail on
+	//     hardware, so this one counts keys and refuses.
+	//   - Sections NOT named in the body are untouched, and `unmodelledKey`
+	//     inside a section must survive an update of that section.
+	controllerSettings := map[string]any{
+		"general": map[string]any{
+			"name": "Omada Controller", "timeZone": "UTC", "region": "United States",
+			"ntpEnable": false, "ntpServers": []any{},
+		},
+		"webPort": map[string]any{
+			"manageHttpPort": float64(8088), "manageHttpsPort": float64(8043),
+			"portalHttpPort": float64(8088), "portalHttpsPort": float64(8843),
+			"hostName": "", "autoRefresh": true, "autoPortalIpEnable": true,
+			"portalHttpsRedirect": false,
+		},
+		"deviceManage": map[string]any{
+			"deviceHostEnable": false, "deviceHost": "",
+		},
+		"deviceAccessManagement": map[string]any{
+			"webControlHttp": false, "webControlHttps": true, "appDiscovery": true,
+			"unmodelledKey": "keep-me",
+		},
+		"firmware":     map[string]any{"controllerNotification": true},
+		"loggingLevel": map[string]any{"type": "AUTO", "other": "INFO", "manager": "INFO", "client": "INFO", "device": "INFO", "monitor": "INFO", "system": "INFO", "account": "INFO", "log": "INFO"},
+		// Never modelled by the provider: it carries SMTP credentials. It must
+		// survive every update untouched.
+		"mailServer": map[string]any{"enable": false, "password": "seeded-smtp-password"}, //nolint:gosec // test fixture, not a real credential
+	}
+	// Fields each section must carry in full when it is written, mirroring the
+	// live controller's refusal of a partial section.
+	controllerSectionArity := map[string]int{
+		"general": 5, "webPort": 8, "deviceManage": 2,
+		"deviceAccessManagement": 3, "firmware": 1, "loggingLevel": 9,
+	}
+
+	mux.HandleFunc("/abc123/api/v2/controller/setting", func(w http.ResponseWriter, r *http.Request) {
+		if !requireToken(w, r) {
+			return
+		}
+		mu.Lock()
+		defer mu.Unlock()
+
+		switch r.Method {
+		case http.MethodGet:
+			writeEnvelope(w, 0, "", controllerSettings)
+		case http.MethodPatch:
+			var in map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+				writeEnvelope(w, -1001, "bad body", nil)
+				return
+			}
+			for name, raw := range in {
+				sec, ok := raw.(map[string]any)
+				if !ok {
+					writeEnvelope(w, -1001, "section "+name+" is not an object", nil)
+					return
+				}
+				want, known := controllerSectionArity[name]
+				if !known {
+					writeEnvelope(w, -1001, "unknown section "+name, nil)
+					return
+				}
+				if len(sec) < want {
+					// What the live controller does to a partial section.
+					writeEnvelope(w, -1, "General error.", nil)
+					return
+				}
+				cur, _ := controllerSettings[name].(map[string]any)
+				merged := map[string]any{}
+				for k, v := range cur {
+					merged[k] = v
+				}
+				for k, v := range sec {
+					merged[k] = v
+				}
+				controllerSettings[name] = merged
+			}
+			writeEnvelope(w, 0, "", nil)
+		default:
+			writeEnvelope(w, -1600, "Unsupported request path.", nil)
+		}
+	})
+
+	mux.HandleFunc("/debug/controllerSettings", func(w http.ResponseWriter, _ *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		_ = json.NewEncoder(w).Encode(controllerSettings)
 	})
 
 	mux.HandleFunc("/debug/iotServers", func(w http.ResponseWriter, _ *http.Request) {

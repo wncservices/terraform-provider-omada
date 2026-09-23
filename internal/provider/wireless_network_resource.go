@@ -359,8 +359,14 @@ func (r *wirelessResource) apply(w *omada.WirelessNetwork, m *wirelessResourceMo
 
 	m.DHCPOption82Enable = types.BoolValue(w.DHCPOption82.DhcpEnable)
 
+	// Confirmed live (6.2.14.11): an untagged SSID reads back with
+	// vlanSetting {"mode": 0, "customConfig": {}}, so no lanNetworkId. A config
+	// value is kept as planned, but an omitted one is unknown on create and
+	// must become null.
 	if id := w.VLANSetting.CustomConfig.LANNetworkID; id != "" {
 		m.LANNetworkID = types.StringValue(id)
+	} else if m.LANNetworkID.IsUnknown() {
+		m.LANNetworkID = types.StringNull()
 	}
 }
 
