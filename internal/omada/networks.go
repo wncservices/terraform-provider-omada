@@ -138,12 +138,11 @@ func networksPath(siteID string) string {
 
 // CreateNetwork creates a LAN network.
 //
-// NOTE: creating a brand-new "interface" network is not supported by this
-// endpoint on v6.2 controllers (the UI uses the Omada OpenAPI). See the README.
-// CreateNetwork creates a LAN network through the Open API.
-//
-// Create is the one network operation the web API will not do — POSTing to
-// /setting/lan/networks is rejected outright. It lives on the Open API instead:
+// An L2-only "vlan" network goes through the web API instead — see
+// createVLANNetwork — because a gateway-less site cannot reach the Open API
+// create at all. Every other purpose still goes through the Open API below:
+// on a site with a gateway, POSTing to /setting/lan/networks is rejected
+// outright, so "interface" creates live there instead:
 //
 //	POST /openapi/v2/{omadacId}/sites/{site}/lan-networks
 //
@@ -328,7 +327,14 @@ func (c *Client) createVLANNetwork(ctx context.Context, siteID, name string, fie
 		"gatewaySubnet": "gateway_subnet",
 		"interfaceIds":  "interface_ids",
 	} {
-		if v, ok := fields[field]; ok && !isEmptyValue(v) {
+		// Presence alone, not isEmptyValue: an explicit empty value
+		// (interface_ids = [] or gateway_subnet = "") is a known, non-null
+		// value distinct from omitting the attribute. isEmptyValue would let
+		// it slip through here, fall into rest below, and get PATCHed onto
+		// the controller-assigned interfaceIds/gatewaySubnet by UpdateNetwork's
+		// read-modify-write — silently clobbering what this refusal exists to
+		// protect.
+		if _, ok := fields[field]; ok {
 			return nil, fmt.Errorf("creating network %q: %s cannot be set on a %q network — "+
 				"the controller assigns it (an L2-only VLAN has no subnet to route and no "+
 				"gateway interface to bind to). Remove it, or use purpose %q",
@@ -375,23 +381,6 @@ func (c *Client) createVLANNetwork(ctx context.Context, siteID, name string, fie
 			name, err)
 	}
 	return updated, nil
-}
-
-// isEmptyValue reports whether a field carries nothing worth sending, so that
-// an attribute the practitioner left unset is not mistaken for one they set.
-func isEmptyValue(v any) bool {
-	switch t := v.(type) {
-	case nil:
-		return true
-	case string:
-		return t == ""
-	case []string:
-		return len(t) == 0
-	case []any:
-		return len(t) == 0
-	default:
-		return false
-	}
 }
 
 // valueOr returns fields[key], or def when it is absent or nil.

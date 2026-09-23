@@ -252,6 +252,20 @@ resource "omada_network" "bad" {
 }`,
 				ExpectError: regexp.MustCompile(`gateway_subnet cannot be set on a "vlan" network`),
 			},
+			{
+				// An explicit empty list is a known, non-null value distinct from
+				// omitting the attribute — it must be refused too, not silently
+				// merged onto the controller-assigned interfaceIds by the
+				// follow-up update.
+				Config: testProviderConfig(srv.URL) + `
+resource "omada_network" "bad2" {
+  name          = "AlsoNope"
+  vlan_id       = 58
+  purpose       = "vlan"
+  interface_ids = []
+}`,
+				ExpectError: regexp.MustCompile(`interface_ids cannot be set on a "vlan" network`),
+			},
 		},
 	})
 }
