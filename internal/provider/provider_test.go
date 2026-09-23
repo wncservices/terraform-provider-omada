@@ -1306,7 +1306,6 @@ func newMockController(t *testing.T) *httptest.Server {
 			return
 		}
 		writeEnvelope(w, 0, "", apDoc)
-		writeEnvelope(w, 0, "", apDoc)
 	})
 
 	// A single-band AP: no radioSetting5g key at all, not merely a zero value —
