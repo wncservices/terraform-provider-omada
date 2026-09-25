@@ -312,6 +312,12 @@ resource have a site. A few controller documents live *above* sites: their path
 has no `/sites/{id}/` in it and there is exactly one of them per controller.
 `omada_controller_settings` is the first.
 
+Controller scope does not imply a singleton. `omada_firmware_upgrade_schedule`
+is controller-scoped and a *collection*: its path has no site, but there can be
+many schedules, each with its own id (the controller's `autoCheckId`), and each
+schedule names the sites it covers in a `sites` attribute. It follows the same
+rule: no `site`, no `site_id`.
+
 Such a resource simply omits `site` and `site_id`, never calls `ResolveSite`,
 and uses the controller's own id (`client.OmadacID()`) as its Terraform id. No
 second provider and no muxing is needed for this: the provider's own `site`
@@ -407,6 +413,7 @@ preserved via read-modify-write.
 | `omada_firewall_acls` (data) | R | mock | discovery — lists all ACL types |
 | `omada_devices` (data) | R | live | inventory — gateways/switches/APs |
 | `omada_controller_settings` | R/U (singleton) | live · subset | **controller-scoped: no `site`** — see §2.7b; `PATCH /controller/setting`, sections sent whole; SMTP/certificate/RADIUS deliberately unmodelled |
+| `omada_firmware_upgrade_schedule` | CRUD | live | **controller-scoped collection** — see §2.7b; `/upgrade/autoCheck`: no GET by id (read via the list + `/sites/{id}`), `PATCH` needs the whole body (partial → `-1001`), `DELETE` of an unknown id succeeds; models come from `POST /upgrade/models` |
 
 ---
 
@@ -995,6 +1002,10 @@ Not gaps, and not planned: statistics and telemetry, log retrieval, one-shot
 actions (reboot, upgrade, RF optimization runs, speed tests), client
 block/unblock, and controller-level (as opposed to site-level) administration
 such as users, roles and cloud access.
+
+A *standing* firmware upgrade schedule is configuration, not a one-shot
+action, so it is in scope (`omada_firmware_upgrade_schedule`); triggering an
+upgrade now remains out.
 
 ### 5.8 The `1_<hex>` WAN interface id — resolved
 

@@ -2594,6 +2594,126 @@ func newMockController(t *testing.T) *httptest.Server {
 		_ = json.NewEncoder(w).Encode(profs)
 	})
 
+	// Firmware auto-upgrade schedules (controller-scoped). Mirrors the live
+	// controller: no GET by id, a PATCH missing any top-level field is refused
+	// with -1001, DELETE succeeds for an unknown id, and the list reports sites
+	// by name only (ids come from /sites/{id}). The models endpoint returns
+	// what site-1 has adopted.
+	fwSchedules := map[string]map[string]any{}
+	fwNext := 1
+	siteNamesByID := map[string]string{"site-1": "Default"}
+	fwModels := []map[string]any{
+		{"compoundModel": "EAP670(US) v2.0", "showModel": "EAP670(US) v2.0", "version": "1.1.3"},
+		{"compoundModel": "ES205G v1.20", "showModel": "ES205G v1.20", "version": "1.0.0"},
+	}
+	const fwBase = "/abc123/api/v2/upgrade/autoCheck"
+	fwComplete := func(in map[string]any) bool {
+		for _, k := range []string{"siteIds", "modelTypeInfos", "occurrence", "channel"} {
+			if in[k] == nil {
+				return false
+			}
+		}
+		return true
+	}
+	mux.HandleFunc("/abc123/api/v2/upgrade/models", func(w http.ResponseWriter, r *http.Request) {
+		if !requireToken(w, r) {
+			return
+		}
+		if r.Method != http.MethodPost {
+			writeEnvelope(w, -1600, "Unsupported request path.", nil)
+			return
+		}
+		writeEnvelope(w, 0, "", map[string]any{"modelTypeInfos": fwModels})
+	})
+	mux.HandleFunc(fwBase, func(w http.ResponseWriter, r *http.Request) {
+		if !requireToken(w, r) {
+			return
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		switch r.Method {
+		case http.MethodPost:
+			var in map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&in)
+			if !fwComplete(in) {
+				writeEnvelope(w, -1001, "must not be null", nil)
+				return
+			}
+			id := fmt.Sprintf("fw-%d", fwNext)
+			fwNext++
+			fwSchedules[id] = in
+			writeEnvelope(w, 0, "", map[string]any{"autoCheckId": id})
+		case http.MethodGet:
+			data := make([]map[string]any, 0, len(fwSchedules))
+			for id, s := range fwSchedules {
+				names := []string{}
+				ids, _ := s["siteIds"].([]any)
+				for _, sid := range ids {
+					names = append(names, siteNamesByID[fmt.Sprint(sid)])
+				}
+				data = append(data, map[string]any{
+					"id": id, "siteNames": names, "siteNum": len(names),
+					"modelTypeInfos": s["modelTypeInfos"], "occurrence": s["occurrence"],
+					"channel": s["channel"], "autoCheckTime": "Sep 27, 2026 04:15:00 am",
+				})
+			}
+			writeEnvelope(w, 0, "", map[string]any{"totalRows": len(data), "currentPage": 1, "currentSize": 100, "data": data})
+		default:
+			writeEnvelope(w, -1600, "Unsupported request path.", nil)
+		}
+	})
+	mux.HandleFunc(fwBase+"/", func(w http.ResponseWriter, r *http.Request) {
+		if !requireToken(w, r) {
+			return
+		}
+		rest := strings.TrimPrefix(r.URL.Path, fwBase+"/")
+		mu.Lock()
+		defer mu.Unlock()
+		if id, ok := strings.CutPrefix(rest, "sites/"); ok && r.Method == http.MethodGet {
+			s, found := fwSchedules[id]
+			if !found {
+				writeEnvelope(w, -34326, "object does not exist", nil)
+				return
+			}
+			sites := []map[string]any{}
+			ids, _ := s["siteIds"].([]any)
+			for _, sid := range ids {
+				sites = append(sites, map[string]any{"id": sid, "name": siteNamesByID[fmt.Sprint(sid)]})
+			}
+			writeEnvelope(w, 0, "", map[string]any{"sites": sites})
+			return
+		}
+		switch r.Method {
+		case http.MethodPatch:
+			var in map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&in)
+			if !fwComplete(in) {
+				writeEnvelope(w, -1001, "must not be null", nil)
+				return
+			}
+			if _, found := fwSchedules[rest]; !found {
+				writeEnvelope(w, -34326, "object does not exist", nil)
+				return
+			}
+			fwSchedules[rest] = in
+			writeEnvelope(w, 0, "", nil)
+		case http.MethodDelete:
+			// Live: success whether or not the id exists.
+			delete(fwSchedules, rest)
+			writeEnvelope(w, 0, "", nil)
+		default:
+			// Live: there is no GET by id.
+			writeEnvelope(w, -1600, "Unsupported request path.", nil)
+		}
+	})
+	// Test-only hook: the schedules as stored, so a test can assert what was
+	// actually sent (e.g. that update carried the whole body).
+	mux.HandleFunc("/debug/firmware-schedules", func(w http.ResponseWriter, _ *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		_ = json.NewEncoder(w).Encode(fwSchedules)
+	})
+
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 	return srv
