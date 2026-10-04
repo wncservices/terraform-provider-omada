@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/hashicorp/terraform-plugin-framework-validators/int64validator"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
@@ -15,6 +16,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/int64default"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 
 	"github.com/wncservices/terraform-provider-omada/internal/omada"
@@ -24,6 +26,7 @@ var (
 	_ resource.Resource                = &wirelessResource{}
 	_ resource.ResourceWithConfigure   = &wirelessResource{}
 	_ resource.ResourceWithImportState = &wirelessResource{}
+	_ resource.ResourceWithModifyPlan  = &wirelessResource{}
 )
 
 func NewWirelessNetworkResource() resource.Resource { return &wirelessResource{} }
@@ -39,6 +42,7 @@ type wirelessResourceModel struct {
 	Band         types.Int64  `tfsdk:"band"`
 	Security     types.Int64  `tfsdk:"security"`
 	PSK          types.String `tfsdk:"psk"`
+	PSKRevision  types.Int64  `tfsdk:"psk_revision"`
 	Broadcast    types.Bool   `tfsdk:"broadcast"`
 	VLANEnable   types.Bool   `tfsdk:"vlan_enable"`
 	VLANID       types.Int64  `tfsdk:"vlan_id"`
@@ -93,7 +97,7 @@ func (r *wirelessResource) Schema(_ context.Context, _ resource.SchemaRequest, r
 	}
 	resp.Schema = schema.Schema{
 		MarkdownDescription: "Manages a wireless SSID within a WLAN group: bands, security, VLAN tagging, PMF, roaming, rate limiting, multicast and MAC filtering.\n\n" +
-			"`psk` is a Terraform **write-only** attribute: it is supplied on apply, never read back from the controller, and never persisted to state or plan. Updates deep-merge the PSK object, so an update that omits `psk` leaves the existing key untouched.",
+			"`psk` is a Terraform **write-only** attribute: it is supplied on apply, never read back from the controller, and never persisted to state or plan. Increment `psk_revision` to rotate the key without changing other settings. Updates deep-merge the PSK object, so an update that omits `psk` leaves the existing key untouched.",
 		Attributes: map[string]schema.Attribute{
 			"id":            schema.StringAttribute{Computed: true, PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()}},
 			"site":          schema.StringAttribute{Optional: true, MarkdownDescription: "Site name. Defaults to the primary site. Changing forces replacement.", PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()}},
@@ -111,7 +115,12 @@ func (r *wirelessResource) Schema(_ context.Context, _ resource.SchemaRequest, r
 				// configured values regardless of what the provider reads
 				// back, so the key would otherwise sit in the state file.
 				WriteOnly:           true,
-				MarkdownDescription: "Pre-shared key (WiFi password). **Write-only**: supplied on apply, never read back from the controller and never persisted to state or plan.",
+				MarkdownDescription: "Pre-shared key (WiFi password). **Write-only**: supplied on apply, never read back from the controller and never persisted as a resource value in state or plan. Supply it through an ephemeral variable: literal HCL secrets or non-ephemeral inputs can still be included elsewhere in saved plans.",
+			},
+			"psk_revision": schema.Int64Attribute{
+				Optional:            true,
+				Validators:          []validator.Int64{int64validator.AtLeast(1)},
+				MarkdownDescription: "Non-secret key revision, starting at 1. Increment this whenever `psk` changes to trigger an in-place rotation; write-only `psk` cannot trigger a plan difference itself. With a revision configured, the key is sent only on create or when the revision changes, and a changed revision requires a non-empty `psk`. The revision is stored in state, not sent to Omada, and cannot be read or verified against the controller. Imports leave it unset: adding it with `psk` writes that key. When omitted, the legacy behavior is retained: any unrelated update sends `psk` if supplied. This is distinct from `psk_version`, which selects the WPA protocol.",
 			},
 			"broadcast":   schema.BoolAttribute{Optional: true, Computed: true, Default: booldefault.StaticBool(true), MarkdownDescription: "Whether the SSID is broadcast (visible)."},
 			"vlan_enable": schema.BoolAttribute{Optional: true, Computed: true, Default: booldefault.StaticBool(false), MarkdownDescription: "Whether the SSID is tagged to a VLAN."},
@@ -378,6 +387,11 @@ func (r *wirelessResource) Create(ctx context.Context, req resource.CreateReques
 	if resp.Diagnostics.HasError() {
 		return
 	}
+	if !plan.PSKRevision.IsNull() && cfg.PSK.ValueString() == "" {
+		resp.Diagnostics.AddAttributeError(path.Root("psk"), "Missing PSK for revision",
+			"psk must be supplied when psk_revision changes or is first configured.")
+		return
+	}
 	// Check cfg, not plan: lan_network_id is Optional+Computed, so an omitted
 	// value is Unknown in the plan (not Null) — only the raw config reliably
 	// tells us the user didn't set it.
@@ -428,19 +442,30 @@ func (r *wirelessResource) Read(ctx context.Context, req resource.ReadRequest, r
 }
 
 func (r *wirelessResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
-	var plan, cfg wirelessResourceModel
+	var plan, cfg, state wirelessResourceModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
+	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
 	// `psk` is write-only, so it is null in the plan; read it from config.
 	resp.Diagnostics.Append(req.Config.Get(ctx, &cfg)...)
 	if resp.Diagnostics.HasError() {
 		return
+	}
+	psk := cfg.PSK.ValueString()
+	if !plan.PSKRevision.IsNull() {
+		if plan.PSKRevision.Equal(state.PSKRevision) {
+			psk = ""
+		} else if psk == "" {
+			resp.Diagnostics.AddAttributeError(path.Root("psk"), "Missing PSK for revision",
+				"psk must be supplied when psk_revision changes or is first configured.")
+			return
+		}
 	}
 	siteID, err := r.data.client.ResolveSiteID(ctx, r.siteName(plan))
 	if err != nil {
 		resp.Diagnostics.AddError("Unable to resolve site", err.Error())
 		return
 	}
-	updated, err := r.data.client.UpdateSSID(ctx, siteID, plan.WLANGroupID.ValueString(), plan.ID.ValueString(), r.fields(plan), cfg.PSK.ValueString())
+	updated, err := r.data.client.UpdateSSID(ctx, siteID, plan.WLANGroupID.ValueString(), plan.ID.ValueString(), r.fields(plan), psk)
 	if err != nil {
 		resp.Diagnostics.AddError("Unable to update SSID", err.Error())
 		return
@@ -448,6 +473,28 @@ func (r *wirelessResource) Update(ctx context.Context, req resource.UpdateReques
 	r.apply(updated, &plan)
 	plan.SiteID = types.StringValue(siteID)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
+}
+
+// Reject a known missing key during planning, and recheck it during apply
+// because ephemeral values may be unknown or different at plan time.
+func (r *wirelessResource) ModifyPlan(ctx context.Context, req resource.ModifyPlanRequest, resp *resource.ModifyPlanResponse) {
+	if req.Plan.Raw.IsNull() {
+		return // destroy
+	}
+	var revision, previous types.Int64
+	var psk types.String
+	resp.Diagnostics.Append(req.Plan.GetAttribute(ctx, path.Root("psk_revision"), &revision)...)
+	resp.Diagnostics.Append(req.Config.GetAttribute(ctx, path.Root("psk"), &psk)...)
+	if !req.State.Raw.IsNull() {
+		resp.Diagnostics.Append(req.State.GetAttribute(ctx, path.Root("psk_revision"), &previous)...)
+	}
+	if resp.Diagnostics.HasError() || revision.IsNull() || revision.IsUnknown() || psk.IsUnknown() {
+		return
+	}
+	if (req.State.Raw.IsNull() || !revision.Equal(previous)) && psk.ValueString() == "" {
+		resp.Diagnostics.AddAttributeError(path.Root("psk"), "Missing PSK for revision",
+			"psk must be supplied when psk_revision changes or is first configured.")
+	}
 }
 
 func (r *wirelessResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {

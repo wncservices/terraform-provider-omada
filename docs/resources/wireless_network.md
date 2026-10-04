@@ -4,22 +4,29 @@ page_title: "omada_wireless_network Resource - omada"
 subcategory: ""
 description: |-
   Manages a wireless SSID within a WLAN group: bands, security, VLAN tagging, PMF, roaming, rate limiting, multicast and MAC filtering.
-  psk is a Terraform write-only attribute: it is supplied on apply, never read back from the controller, and never persisted to state or plan. Updates deep-merge the PSK object, so an update that omits psk leaves the existing key untouched.
+  psk is a Terraform write-only attribute: it is supplied on apply, never read back from the controller, and never persisted to state or plan. Increment psk_revision to rotate the key without changing other settings. Updates deep-merge the PSK object, so an update that omits psk leaves the existing key untouched.
 ---
 
 # omada_wireless_network (Resource)
 
 Manages a wireless SSID within a WLAN group: bands, security, VLAN tagging, PMF, roaming, rate limiting, multicast and MAC filtering.
 
-`psk` is a Terraform **write-only** attribute: it is supplied on apply, never read back from the controller, and never persisted to state or plan. Updates deep-merge the PSK object, so an update that omits `psk` leaves the existing key untouched.
+`psk` is a Terraform **write-only** attribute: it is supplied on apply, never read back from the controller, and never persisted to state or plan. Increment `psk_revision` to rotate the key without changing other settings. Updates deep-merge the PSK object, so an update that omits `psk` leaves the existing key untouched.
 
 ## Example Usage
 
 ```terraform
+variable "iot_wifi_password" {
+  type      = string
+  sensitive = true
+  ephemeral = true
+}
+
 resource "omada_wireless_network" "iot" {
   wlan_group_id = omada_wlan_group.iot.id
   name          = "IoT"
-  psk           = var.iot_wifi_password # sensitive
+  psk           = var.iot_wifi_password
+  psk_revision  = 1 # increment whenever the password changes
   vlan_enable   = true
   vlan_id       = 30
 }
@@ -57,9 +64,10 @@ resource "omada_wireless_network" "iot" {
 - `pmf_mode` (Number) Protected Management Frames mode.
 - `portal_enable` (Boolean) Captive portal on this SSID.
 - `prohibit_wifi_share` (Boolean) Prohibit WiFi sharing.
-- `psk` (String, Sensitive, [Write-only](https://developer.hashicorp.com/terraform/language/resources/ephemeral#write-only-arguments)) Pre-shared key (WiFi password). **Write-only**: supplied on apply, never read back from the controller and never persisted to state or plan.
+- `psk` (String, Sensitive, [Write-only](https://developer.hashicorp.com/terraform/language/resources/ephemeral#write-only-arguments)) Pre-shared key (WiFi password). **Write-only**: supplied on apply, never read back from the controller and never persisted as a resource value in state or plan. Supply it through an ephemeral variable: literal HCL secrets or non-ephemeral inputs can still be included elsewhere in saved plans.
 - `psk_encryption` (Number) PSK encryption code.
 - `psk_gik_rekey` (Boolean) GIK rekeying.
+- `psk_revision` (Number) Non-secret key revision, starting at 1. Increment this whenever `psk` changes to trigger an in-place rotation; write-only `psk` cannot trigger a plan difference itself. With a revision configured, the key is sent only on create or when the revision changes, and a changed revision requires a non-empty `psk`. The revision is stored in state, not sent to Omada, and cannot be read or verified against the controller. Imports leave it unset: adding it with `psk` writes that key. When omitted, the legacy behavior is retained: any unrelated update sends `psk` if supplied. This is distinct from `psk_version`, which selects the WPA protocol.
 - `psk_version` (Number) WPA version code for the PSK.
 - `rate_ctrl_2g` (Boolean) Rate control on 2.4GHz.
 - `rate_ctrl_5g` (Boolean) Rate control on 5GHz.

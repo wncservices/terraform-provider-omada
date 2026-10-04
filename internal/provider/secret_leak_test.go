@@ -4,14 +4,32 @@
 package provider
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
+	"github.com/hashicorp/terraform-plugin-testing/plancheck"
 	"github.com/hashicorp/terraform-plugin-testing/terraform"
 )
+
+type secretsAbsentFromPlan struct{ secrets []string }
+
+func (c secretsAbsentFromPlan) CheckPlan(_ context.Context, req plancheck.CheckPlanRequest, resp *plancheck.CheckPlanResponse) {
+	buf, err := json.Marshal(req.Plan)
+	if err != nil {
+		resp.Error = err
+		return
+	}
+	for _, secret := range c.secrets {
+		if secret != "" && strings.Contains(string(buf), secret) {
+			resp.Error = fmt.Errorf("a configured secret leaked into the plan")
+			return
+		}
+	}
+}
 
 // checkSecretsAbsentFromState fails if any of the given secrets appears
 // anywhere in Terraform state.

@@ -8,7 +8,9 @@ import (
 	"regexp"
 	"testing"
 
+	testconfig "github.com/hashicorp/terraform-plugin-testing/config"
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
+	"github.com/hashicorp/terraform-plugin-testing/plancheck"
 	"github.com/hashicorp/terraform-plugin-testing/terraform"
 )
 
@@ -231,4 +233,118 @@ resource "omada_wireless_network" "guest" {
 			},
 		},
 	})
+}
+
+// Password-only rotation must update the existing SSID, without storing the
+// key or requiring an unrelated wireless setting to change.
+func TestAccWirelessNetworkResourcePSKRevision(t *testing.T) {
+	srv := newMockController(t)
+	const address = "omada_wireless_network.rotation"
+	var originalID string
+	config := func(key string, revision int, guest bool) string {
+		psk := ""
+		if key != "" {
+			psk = "psk = var.wifi_password"
+		}
+		return testProviderConfig(srv.URL) + fmt.Sprintf(`
+variable "wifi_password" {
+  type = string
+  sensitive = true
+  ephemeral = true
+  default = null
+}
+resource "omada_wireless_network" "rotation" {
+  wlan_group_id = "grp-default"
+  name = "Rotation"
+  %s
+  psk_revision = %d
+  guest_net = %t
+  vlan_id = 0
+}`, psk, revision, guest)
+	}
+	check := func(key, revision string) resource.TestCheckFunc {
+		return resource.ComposeAggregateTestCheckFunc(
+			checkSecretsAbsentFromState(t, "initial-dummy-key", "rotated-dummy-key", "ignored-dummy-key"),
+			resource.TestCheckNoResourceAttr(address, "psk"),
+			resource.TestCheckResourceAttr(address, "psk_revision", revision),
+			func(s *terraform.State) error {
+				id := s.RootModule().Resources[address].Primary.ID
+				if originalID == "" {
+					originalID = id
+				}
+				stored := rawStore(t, srv.URL, "ssids")
+				if id != originalID || len(stored) != 1 {
+					return fmt.Errorf("rotation replaced or duplicated the SSID")
+				}
+				ps, _ := stored[id]["pskSetting"].(map[string]any)
+				if ps["securityKey"] != key {
+					return fmt.Errorf("controller key did not match the expected revision")
+				}
+				if _, leaked := stored[id]["psk_revision"]; leaked {
+					return fmt.Errorf("provider-only revision was sent to the controller")
+				}
+				return nil
+			},
+		)
+	}
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{Config: config("initial-dummy-key", 1, false), ConfigVariables: testconfig.Variables{"wifi_password": testconfig.StringVariable("initial-dummy-key")}, Check: check("initial-dummy-key", "1")},
+			{
+				Config: config("rotated-dummy-key", 2, false), Check: check("rotated-dummy-key", "2"),
+				ConfigVariables: testconfig.Variables{"wifi_password": testconfig.StringVariable("rotated-dummy-key")},
+				ConfigPlanChecks: resource.ConfigPlanChecks{PreApply: []plancheck.PlanCheck{
+					plancheck.ExpectResourceAction(address, plancheck.ResourceActionUpdate),
+					secretsAbsentFromPlan{secrets: []string{"initial-dummy-key", "rotated-dummy-key"}},
+				}},
+			},
+			// A different write-only value alone must not cause a plan diff.
+			{Config: config("ignored-dummy-key", 2, false), ConfigVariables: testconfig.Variables{"wifi_password": testconfig.StringVariable("ignored-dummy-key")}, PlanOnly: true, ExpectNonEmptyPlan: false},
+			// An unrelated update with the same revision must not write the key.
+			{Config: config("ignored-dummy-key", 2, true), ConfigVariables: testconfig.Variables{"wifi_password": testconfig.StringVariable("ignored-dummy-key")}, Check: check("rotated-dummy-key", "2")},
+			{Config: config("", 2, false), Check: check("rotated-dummy-key", "2")},
+			{Config: config("", 3, false), ExpectError: regexp.MustCompile(`psk must be supplied when psk_revision changes`)},
+			{Config: config("", 2, false), Check: check("rotated-dummy-key", "2")},
+			{
+				ResourceName: address, ImportState: true, ImportStateVerify: true,
+				ImportStateVerifyIgnore: []string{"psk", "psk_revision"},
+				ImportStateIdFunc: func(s *terraform.State) (string, error) {
+					rs := s.RootModule().Resources[address]
+					return fmt.Sprintf("%s/%s", rs.Primary.Attributes["wlan_group_id"], rs.Primary.ID), nil
+				},
+			},
+		},
+	})
+}
+
+func TestAccWirelessNetworkResourceInvalidPSKRevision(t *testing.T) {
+	srv := newMockController(t)
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: testProviderConfig(srv.URL) + `
+resource "omada_wireless_network" "bad" {
+  wlan_group_id = "grp-default"
+  name = "Bad revision"
+  psk = "dummy-password"
+  psk_revision = 0
+}`,
+				ExpectError: regexp.MustCompile(`at least 1`),
+			},
+			{
+				Config: testProviderConfig(srv.URL) + `
+resource "omada_wireless_network" "bad" {
+  wlan_group_id = "grp-default"
+  name = "Missing key"
+  psk_revision = 1
+}`,
+				ExpectError: regexp.MustCompile(`psk must be supplied when psk_revision changes`),
+			},
+		},
+	})
+	if len(rawStore(t, srv.URL, "ssids")) != 0 {
+		t.Fatal("invalid revision configuration wrote an SSID")
+	}
 }
