@@ -193,6 +193,7 @@ func (p *OmadaProvider) DataSources(_ context.Context) []func() datasource.DataS
 	return []func() datasource.DataSource{
 		NewSitesDataSource,
 		NewNetworksDataSource,
+		NewPortProfilesDataSource,
 		NewWANDataSource,
 		NewPortForwardsDataSource,
 		NewFirewallACLsDataSource,
@@ -208,6 +209,7 @@ func (p *OmadaProvider) Resources(_ context.Context) []func() resource.Resource 
 		NewIPGroupResource,
 		NewPortGroupResource,
 		NewFirewallACLResource,
+		NewFirewallACLOrderResource,
 		NewWLANGroupResource,
 		NewMDNSReflectorResource,
 		NewMDNSProfileResource,
@@ -234,6 +236,7 @@ func (p *OmadaProvider) Resources(_ context.Context) []func() resource.Resource 
 		NewIPTVResource,
 		NewDNSProxyResource,
 		NewAccessPointResource,
+		NewSwitchResource,
 		NewGatewayResource,
 		NewSSHSettingsResource,
 		NewDot1XResource,
