@@ -1,6 +1,6 @@
 module github.com/wncservices/terraform-provider-omada
 
-go 1.26.5
+go 1.26.10
 
 require (
 	github.com/hashicorp/terraform-plugin-docs v0.25.0
