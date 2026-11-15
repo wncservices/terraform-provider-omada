@@ -15,7 +15,7 @@ single reference for contributors and agents.
 
 ## Technology Stack
 
-- **Language:** Go 1.26.5 (`terraform-plugin-framework`, not SDKv2)
+- **Language:** Go 1.26.11 (`terraform-plugin-framework`, not SDKv2)
 - **Terraform:** 1.15.x for local/acceptance runs (min protocol 6.0)
 - **Docker:** no — this is a Go module; tooling is local
 - **Lint:** golangci-lint v2 (`.golangci.yml`)
@@ -26,7 +26,7 @@ single reference for contributors and agents.
 ## Quick Start (local development)
 
 Pin toolchain versions with [asdf](https://asdf-vm.com) (`.tool-versions`), or
-install Go 1.26.5 + Terraform 1.15.x manually.
+install Go 1.26.11 + Terraform 1.15.x manually.
 
 ```sh
 asdf install          # installs Go, Terraform, golangci-lint per .tool-versions
