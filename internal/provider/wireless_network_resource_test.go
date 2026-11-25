@@ -235,6 +235,67 @@ resource "omada_wireless_network" "guest" {
 	})
 }
 
+// device_type is sent on create (issue #87), is read back on import, defaults
+// to whatever the controller picks when omitted without causing a diff, and
+// forces replacement when changed.
+func TestAccWirelessNetworkResourceDeviceType(t *testing.T) {
+	srv := newMockController(t)
+	cfg := func(extra string) string {
+		return testProviderConfig(srv.URL) + fmt.Sprintf(`
+resource "omada_wireless_network" "ap" {
+  wlan_group_id = "grp-default"
+  name          = "AP only"
+  psk           = "supersecret"
+  vlan_id       = 0
+  %s
+}`, extra)
+	}
+
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: cfg("device_type = 1"),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("omada_wireless_network.ap", "device_type", "1"),
+					func(*terraform.State) error {
+						for _, s := range rawStore(t, srv.URL, "ssids") {
+							if got, _ := s["deviceType"].(float64); got != 1 {
+								return fmt.Errorf("deviceType sent to controller = %v, want 1", s["deviceType"])
+							}
+						}
+						return nil
+					},
+				),
+			},
+			{
+				ResourceName:            "omada_wireless_network.ap",
+				ImportState:             true,
+				ImportStateVerify:       true,
+				ImportStateVerifyIgnore: []string{"psk"},
+				ImportStateIdFunc: func(s *terraform.State) (string, error) {
+					rs := s.RootModule().Resources["omada_wireless_network.ap"]
+					return fmt.Sprintf("%s/%s", rs.Primary.Attributes["wlan_group_id"], rs.Primary.Attributes["id"]), nil
+				},
+			},
+			{ // omitting it keeps the existing value: no diff, no replacement
+				Config:             cfg(""),
+				PlanOnly:           true,
+				ExpectNonEmptyPlan: false,
+			},
+			{ // changing it cannot be done in place on 6.3
+				Config: cfg("device_type = 3"),
+				ConfigPlanChecks: resource.ConfigPlanChecks{
+					PreApply: []plancheck.PlanCheck{
+						plancheck.ExpectResourceAction("omada_wireless_network.ap", plancheck.ResourceActionDestroyBeforeCreate),
+					},
+				},
+				Check: resource.TestCheckResourceAttr("omada_wireless_network.ap", "device_type", "3"),
+			},
+		},
+	})
+}
+
 // Password-only rotation must update the existing SSID, without storing the
 // key or requiring an unrelated wireless setting to change.
 func TestAccWirelessNetworkResourcePSKRevision(t *testing.T) {

@@ -885,6 +885,11 @@ func newMockController(t *testing.T, opts ...mockOption) *httptest.Server {
 			if in["vlanSetting"] == nil {
 				in["vlanSetting"] = map[string]any{"mode": 0, "customConfig": map[string]any{}}
 			}
+			// Confirmed live (6.3.0.111, issue #87): an omitted deviceType is
+			// filled in as 3 (APs and gateway).
+			if in["deviceType"] == nil {
+				in["deviceType"] = float64(3)
+			}
 			id := fmt.Sprintf("ssid-%d", ssidNext)
 			ssidNext++
 			in["id"] = id

@@ -47,6 +47,7 @@ resource "omada_wireless_network" "iot" {
 - `access_enable` (Boolean) Access control.
 - `band` (Number) Radio band bitmask: 1=2.4GHz, 2=5GHz, 4=6GHz (7=all).
 - `broadcast` (Boolean) Whether the SSID is broadcast (visible).
+- `device_type` (Number) Which devices the SSID is applied to, as a bitmask: 1=APs, 2=gateway, 3=APs and gateway. Set `1` for an AP-only SSID. When omitted the controller chooses (`3` on controller 6.3, which also pushes the SSID to any gateway adopted later). Controller 6.3+ cannot change this once the SSID exists, so changing it forces replacement.
 - `dhcp_option82_enable` (Boolean) DHCP option 82 insertion.
 - `enable_11r` (Boolean) 802.11r fast roaming.
 - `guest_net` (Boolean) Whether this is a guest network.

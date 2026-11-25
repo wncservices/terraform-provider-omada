@@ -83,6 +83,10 @@ type WirelessNetwork struct {
 	VLANEnable bool   `json:"vlanEnable"`
 	VLANID     int    `json:"vlanId"`
 	GuestNet   bool   `json:"guestNetEnable"`
+	// DeviceType is a bitmask of the devices the SSID applies to: 1=APs,
+	// 2=gateway (3=both). Nil on controllers that don't report it. Fixed once
+	// the SSID exists on 6.3+.
+	DeviceType *int `json:"deviceType,omitempty"`
 
 	PortalEnable       bool `json:"portalEnable"`
 	AccessEnable       bool `json:"accessEnable"`

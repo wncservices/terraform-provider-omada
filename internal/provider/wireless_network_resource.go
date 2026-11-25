@@ -14,6 +14,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/booldefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/int64default"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/int64planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
@@ -48,6 +49,7 @@ type wirelessResourceModel struct {
 	VLANID       types.Int64  `tfsdk:"vlan_id"`
 	LANNetworkID types.String `tfsdk:"lan_network_id"`
 	GuestNet     types.Bool   `tfsdk:"guest_net"`
+	DeviceType   types.Int64  `tfsdk:"device_type"`
 
 	PortalEnable       types.Bool  `tfsdk:"portal_enable"`
 	AccessEnable       types.Bool  `tfsdk:"access_enable"`
@@ -135,6 +137,19 @@ func (r *wirelessResource) Schema(_ context.Context, _ resource.SchemaRequest, r
 			"lan_network_id": schema.StringAttribute{Optional: true, Computed: true, PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()}, MarkdownDescription: "The `omada_network` (LAN network) id this SSID's VLAN tag binds to. Required when `vlan_enable = true` on create."},
 			"guest_net":      schema.BoolAttribute{Optional: true, Computed: true, Default: booldefault.StaticBool(false), MarkdownDescription: "Whether this is a guest network."},
 
+			"device_type": schema.Int64Attribute{
+				Optional:   true,
+				Computed:   true,
+				Validators: []validator.Int64{int64validator.Between(1, 3)},
+				PlanModifiers: []planmodifier.Int64{
+					int64planmodifier.UseStateForUnknown(),
+					int64planmodifier.RequiresReplace(),
+				},
+				MarkdownDescription: "Which devices the SSID is applied to, as a bitmask: 1=APs, 2=gateway, 3=APs and gateway. " +
+					"Set `1` for an AP-only SSID. When omitted the controller chooses (`3` on controller 6.3, which also pushes the SSID to any gateway adopted later). " +
+					"Controller 6.3+ cannot change this once the SSID exists, so changing it forces replacement.",
+			},
+
 			"portal_enable":        b("Captive portal on this SSID."),
 			"access_enable":        b("Access control."),
 			"wlan_schedule_enable": b("SSID schedule."),
@@ -208,6 +223,9 @@ func (r *wirelessResource) fields(m wirelessResourceModel) map[string]any {
 		"vlanEnable":     m.VLANEnable.ValueBool(),
 		"vlanId":         m.VLANID.ValueInt64(),
 		"guestNetEnable": m.GuestNet.ValueBool(),
+	}
+	if !m.DeviceType.IsNull() && !m.DeviceType.IsUnknown() {
+		f["deviceType"] = m.DeviceType.ValueInt64()
 	}
 	pb := func(k string, v types.Bool) {
 		if !v.IsNull() && !v.IsUnknown() {
@@ -333,6 +351,13 @@ func (r *wirelessResource) apply(w *omada.WirelessNetwork, m *wirelessResourceMo
 	m.VLANEnable = types.BoolValue(w.VLANEnable)
 	m.VLANID = types.Int64Value(int64(w.VLANID))
 	m.GuestNet = types.BoolValue(w.GuestNet)
+	// Controllers before 6.3 may not report deviceType: keep a planned value,
+	// and turn an unknown (omitted) one into null.
+	if w.DeviceType != nil {
+		m.DeviceType = types.Int64Value(int64(*w.DeviceType))
+	} else if m.DeviceType.IsUnknown() {
+		m.DeviceType = types.Int64Null()
+	}
 
 	m.PortalEnable = types.BoolValue(w.PortalEnable)
 	m.AccessEnable = types.BoolValue(w.AccessEnable)
